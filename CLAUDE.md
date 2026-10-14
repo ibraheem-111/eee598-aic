@@ -9,7 +9,15 @@ See README.md for the goal, layout, setup and progress log.
 - Environments: Isaac Lab 2.3.2 -> external/IsaacLab/env_isaaclab (uv venv, Isaac Sim 5.1);
   LeRobot/SmolVLA -> external/lerobot/.venv; AIC ROS 2 Kilted -> `pixi run` inside external/aic.
   Keep them separate. Pixi must stay at 0.67.2 (`pixi self-update --version 0.67.2`).
-- Distrobox defaults to Podman here; always `export DBX_CONTAINER_MANAGER=docker`.
+- Distrobox defaults to Podman here; always `export DBX_CONTAINER_MANAGER=docker`. For scripted runs
+  use scripts/run_sim.sh (docker exec, no sudo); it waits for distrobox's NVIDIA setup, without which
+  Gazebo CPU-renders at ~2% real time. Check with nvidia-smi that component_container is on the GPU.
+- SmolVLA runs in a separate server (LeRobot venv, port 50765) because AIC's pixi PyTorch (2.7 cu126)
+  can't use the RTX 5070; policies in aic_model must time themselves with self.time_now()/sleep_for()
+  (sim time), never wall-clock time.
+- Other projects' containers share this machine: txmem-os-api holds port 8765, and openjev-llama (a
+  llama.cpp server) takes ~9.4 GB VRAM when running; stop it (`docker stop openjev-llama`) for GPU work.
+- Wrap GPU-heavy runs in `flock /tmp/claude-1000/gpu.lock ...` when several sessions share the GPU.
 - Dev GPU is an RTX 5070 with 12 GB VRAM; don't run SmolVLA training and Isaac Lab at the same time.
 - Update the progress log in README.md when a milestone is reached.
 

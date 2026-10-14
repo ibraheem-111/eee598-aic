@@ -17,7 +17,7 @@ into a port on a randomized task board.
 
 ```
 eee598-aic/
-├── policy/        aic_model Policy class: SmolVLA + DSRL noise policy (what gets evaluated)
+├── policy/        aic_smolvla: SmolVLA inference server + RunSmolVLA aic_model policy
 ├── training/      SmolVLA fine-tuning and DSRL training in Isaac Lab
 ├── scripts/       setup.sh, sync_skills.sh and other helpers
 ├── .claude/skills/ Isaac Lab / Isaac Sim agent skills, pinned (see .claude/skills/SOURCE.md)
@@ -61,15 +61,24 @@ which LeRobot reads and writes directly.
 
 **Gazebo scorer** (terminal 1, then terminal 2 within 30 s):
 ```bash
-export DBX_CONTAINER_MANAGER=docker
-distrobox enter -r aic_eval -- /entrypoint.sh ground_truth:=false start_aic_engine:=true
+scripts/run_sim.sh            # add gazebo_gui:=false launch_rviz:=false for headless
 ```
+`run_sim.sh` runs the `aic_eval` container through docker (no sudo) and waits for distrobox's
+NVIDIA setup to finish first; otherwise Gazebo silently renders on the CPU at ~2% real time.
 ```bash
 cd external/aic
 pixi run ros2 run aic_model aic_model --ros-args -p use_sim_time:=true -p policy:=aic_example_policies.ros.WaveArm
 ```
 Use `ground_truth:=true` and `policy:=aic_example_policies.ros.CheatCode` for the demo generator.
 Scores land in `data/aic_results/scoring.yaml`.
+
+**SmolVLA policy** (see `policy/README.md`):
+```bash
+scripts/run_smolvla_server.sh [checkpoint]   # LeRobot venv, GPU
+scripts/run_sim.sh                           # simulator
+scripts/run_smolvla_policy.sh                # aic_model + RunSmolVLA, within 30 s
+scripts/e2e_smolvla_test.sh [checkpoint]     # or all three, headless, logs in outputs/e2e/
+```
 
 **Isaac Lab** (keyboard teleop of the AIC task):
 ```bash
@@ -98,4 +107,7 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | 2026-09-29 | Isaac Lab installed natively; Ant RL example trained; `AIC-Task-v0` registered |
 | 2026-10-13 | SmolVLA loads on the RTX 5070 (450M params, ~1 GB VRAM) |
 | 2026-10-13 | Project repo created; single AIC checkout shared by Gazebo and Isaac Lab |
-| next | CheatCode run in Gazebo; Isaac Lab teleop; record CheatCode demos as a LeRobot dataset |
+| 2026-10-14 | Isaac Lab 3.0 EA trial in `~/IsaacLab-3`: installs and AIC task ports, but verdict is wait (see `docs/isaaclab3_trial.md`) |
+| 2026-10-14 | SmolVLA pipeline runs end to end in Gazebo (`policy/`): server + RunSmolVLA policy, safety stops, sim-time pacing |
+| 2026-10-14 | Gazebo GPU rendering fixed (was silently CPU-rendering at ~2% real time) |
+| next | Record CheatCode demos as a LeRobot dataset; fine-tune SmolVLA; serve the checkpoint |
