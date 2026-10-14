@@ -6,7 +6,8 @@ cable-insertion task, given a 12 GB RTX 5070 (24 GB borrowable but not preferred
 **Short answer**
 - **Model:** SmolVLA works but has the weakest prior. On 12 GB, **X-VLA-0.9B** is the best upgrade
   (robot-pretrained on 290K episodes, flow-matching head, full fine-tune fits); **Evo-1 (0.77B)** is
-  the runner-up. Keep SmolVLA as the baseline we already have running. π0.5 / MolmoAct2 need 24 GB.
+  the runner-up. Keep SmolVLA as the baseline we already have running. π0.5 fits on 12 GB only for
+  LoRA at batch 1 and leaves no room for Gazebo during RL; it becomes the strongest option on 24 GB.
 - **RL:** DSRL alone is too limited for precise insertion. Use **online off-policy actor-critic on a
   frozen VLA that both steers its noise (DSRL) and adds small force-aware residual corrections**,
   trained directly in the Gazebo evaluator with a dense reward from ground-truth poses. Compare
@@ -35,11 +36,25 @@ Script: `scripts/bench_vla_train_memory.sh`.
 | Evo-1 (0.77B, InternVL3-1B) | stage 1: action head only | 8 | 8.8 GB | 1.08 | yes |
 | Evo-1 | stage 2: full, gradient checkpointing | 4 | 10.7 GB | 2.03 | yes (tight) |
 | EO-1 (Qwen2.5-VL-3B) | full, bf16, grad ckpt | 2 | crashed at 7.8 GB (LeRobot integration bug) | – | unknown |
+| π0.5 (4.14B) | action expert only, VLM frozen, bf16, grad ckpt | 1 | OOM | – | no |
+| π0.5 | action expert only, same | 4 | OOM | – | no |
+| π0.5 | LoRA r=16, bf16, grad ckpt | 1 | 9.4 GB | 0.29 | yes (batch 1 only) |
 
-Not measured: π0.5 (needs Google's gated PaliGemma tokenizer and an HF login), GR00T N1.7 (extra
-deps), MolmoAct2 (documented minimum above 12 GB). Published figures are used for those below.
-Inference: SmolVLA measured at ~1 GB and ~145–165 ms per 50-step chunk in our pipeline; Evo-1 reports
-2.3 GB and 16 Hz.
+Not measured: GR00T N1.7 (extra deps) and MolmoAct2 (documented minimum above 12 GB); published
+figures are used for those below. π0.5 expert-only runs out of memory because the expert (with
+gradients and Adam state) is trained on top of 8.7 GiB of frozen bf16 weights; LoRA trains only small
+adapters, so it fits.
+
+Inference, AIC-shaped input (3 cameras 288×256, 26-dim state), 50-step chunk, nothing else on the GPU:
+
+| Model | Process GPU memory | Warm latency per chunk | DSRL noise hook |
+|---|---:|---:|---|
+| SmolVLA | ~1 GB | 145–165 ms | works |
+| π0.5 (`lerobot/pi05_base`, bf16, 4.14B) | 10.15 GiB | 208 ms | works (deterministic, steerable) |
+| Evo-1 (published) | 2.3 GB | ~61 ms (16 Hz) | flow head |
+
+Script: `scripts/bench_pi05_inference.py`. π0.5's checkpoint is a 14.5 GB fp32 download and needs an
+HF login with Google's PaliGemma license accepted (gated tokenizer).
 
 ## 2. Candidate models
 
@@ -54,14 +69,16 @@ over; (5) inference speed for RL in the loop.
 | **Evo-1** ([docs](https://huggingface.co/docs/lerobot/evo1), [paper](https://arxiv.org/html/2511.04555v2)) | 0.77B, InternVL3-1B | flow matching (cross-modulated DiT) | none (relies on VLM alignment) | full bs 4 with grad ckpt | CVPR 2026; beats SmolVLA on Meta-World / RoboTwin, 94.8–96.7% LIBERO; 2.3 GB, 16 Hz. Needs more demos without a robot prior. Runner-up. |
 | **SmolVLA** (current) | 0.45B, SmolVLM2 | flow matching | SO-100 community data (low-cost arms) | expert-only easily; full bs ≤ 4 | Already integrated and tested end to end. Weakest prior. Keep as baseline. |
 | VLA-Adapter ([paper](https://arxiv.org/pdf/2509.09372)) | 0.5B, Qwen2.5 | regression | none | ~10 GB | Strong LIBERO, but no noise → no DSRL. Residual RL only. |
-| π0.5 ([docs](https://huggingface.co/docs/lerobot/pi05)) | ~3B, PaliGemma | flow matching | large, diverse | no (~22 GB LoRA) | Best RL ecosystem (DSRL, πRL, eRLT, EXPO-FT) and the contact-rich study below. **24 GB option.** |
+| π0.5 ([docs](https://huggingface.co/docs/lerobot/pi05)) | 4.14B, PaliGemma | flow matching | large, diverse | LoRA batch 1 only (9.4 GB); expert-only OOM | Best RL ecosystem (DSRL, πRL, eRLT, EXPO-FT) and the contact-rich study below. Inference 10.15 GiB leaves no room for Gazebo + RL. **24 GB option.** |
 | MolmoAct2 ([docs](https://huggingface.co/docs/lerobot/main/en/molmoact2)) | large, Molmo | flow matching + tokens | yes | no (16.5 GiB expert-only, 20.2 GiB LoRA) | Apache 2.0; 98% LIBERO. 24 GB option. |
 | GR00T N1.7 | 3B | flow DiT | humanoid-heavy | no (default ~35 GB; LoRA on 24 GB) | Not a good fit. |
 
 **About the 24 GB GPU.** DSRL and residual RL keep the VLA frozen, so RL needs only *inference*
-memory. One option is to fine-tune π0.5 once on the borrowed 24 GB card and run all RL locally,
-if π0.5 inference fits beside Gazebo on 12 GB. That is unverified (published figures conflict, and
-the gated tokenizer blocked a local test). Not worth it unless X-VLA clearly fails.
+memory. Measured: π0.5 inference alone takes 10.15 GiB of the 11.49 GiB usable. Headless Gazebo
+needs ~1 GB (2.5 GB with the observer cameras), plus the RL actor, critic and replay batches, so RL
+with π0.5 in the loop does not fit on 12 GB in bf16 (8-bit weight quantization might, untested).
+LoRA fine-tuning does fit locally at batch 1 (use gradient accumulation for an effective batch).
+So π0.5 is a 24 GB plan: fine-tune and run RL on the borrowed card. On 12 GB, X-VLA remains the pick.
 
 **Whatever the model, three things matter as much as which one:**
 1. Put the wrist force/torque (and a short history) in the state vector. The AIC recorder's 26-dim

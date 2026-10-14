@@ -16,3 +16,6 @@ smolvla_full_bs4_bf16acc4	ok	8582	0.181
 smolvla_visfrozen_bs8	ok	5008	0.273
 xvla_full_bf16_bs8	OOM	10728	7.766
 xvla_frozenvlm_bs16	ok	8496	0.373
+pi05_expertonly_bs1	OOM	10774	-
+pi05_expertonly_bs4	OOM	10730	-
+pi05_lora16_bs1	ok	9622	0.293
