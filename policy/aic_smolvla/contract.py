@@ -12,6 +12,9 @@ Pure numpy: imported by both the ROS policy (AIC pixi env) and the inference ser
 import numpy as np
 
 CAMERAS = ("left_camera", "center_camera", "right_camera")
+# Optional 4th image: a reference picture of the target port (what "inserted" looks like), looked up
+# by port name from a small library (data/demos/target_refs/). Only used by checkpoints trained with it.
+TARGET_REF = "target_ref"
 IMAGE_SCALE = 0.25
 
 STATE_NAMES = (
@@ -66,12 +69,41 @@ def observation_to_numpy(obs_msg) -> dict:
     }
 
 
+def _field(task, name):
+    return task.get(name, "") if isinstance(task, dict) else getattr(task, name, "")
+
+
 def task_prompt(task) -> str:
-    """aic_task_interfaces/Task -> language instruction for SmolVLA."""
+    """Task (message or dict) -> raw instruction built from AIC's identifiers."""
     return (
-        f"insert the {task.plug_name or task.plug_type} plug into "
-        f"{task.port_name or task.port_type} on {task.target_module_name}"
+        f"insert the {_field(task, 'plug_name') or _field(task, 'plug_type')} plug into "
+        f"{_field(task, 'port_name') or _field(task, 'port_type')} on {_field(task, 'target_module_name')}"
     )
+
+
+def task_prompt_plain(task) -> str:
+    """Task (message or dict) -> the same instruction in plain words (well under 48 tokens).
+
+    e.g. "Insert the SFP transceiver into the second SFP port of the network card on rail 3."
+         "Insert the SC fiber plug into the SC port on optical rail 1."
+    """
+    port, module = _field(task, "port_name"), _field(task, "target_module_name")
+    rail = module.rsplit("_", 1)[-1] if module else "?"
+    if port.startswith("sfp_port"):
+        which = {"sfp_port_0": "first", "sfp_port_1": "second"}.get(port, port)
+        return f"Insert the SFP transceiver into the {which} SFP port of the network card on rail {rail}."
+    if port.startswith("sc_port"):
+        return f"Insert the SC fiber plug into the SC port on optical rail {rail}."
+    return task_prompt(task)
+
+
+def task_fields(task) -> dict:
+    """Task message -> plain dict, so the server can build prompts and look up reference images."""
+    return {k: _field(task, k) for k in ("plug_type", "plug_name", "port_type", "port_name",
+                                         "target_module_name", "cable_name")}
+
+
+PROMPTS = {"raw": task_prompt, "plain": task_prompt_plain}
 
 
 def clip_twist(action: np.ndarray, max_linear: float, max_angular: float) -> np.ndarray:

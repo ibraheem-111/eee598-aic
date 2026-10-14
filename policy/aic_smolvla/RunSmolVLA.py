@@ -161,7 +161,8 @@ class RunSmolVLA(Policy):
                     if start_state is None:
                         start_state = self._tcp_and_force(obs_msg)
                     obs = contract.observation_to_numpy(obs_msg)
-                    reply = transport.request(self.conn, {"cmd": "act", "obs": obs, "task": prompt})
+                    reply = transport.request(self.conn, {"cmd": "act", "obs": obs, "task": prompt,
+                                                          "task_fields": contract.task_fields(task)})
                     chunk = reply["actions"]
                     chunks += 1
                     latencies.append(reply["latency_s"])
@@ -172,6 +173,7 @@ class RunSmolVLA(Policy):
                         "sim_t": round(obs_msg.joint_states.header.stamp.sec
                                        + obs_msg.joint_states.header.stamp.nanosec * 1e-9, 3),
                         "latency_s": round(reply["latency_s"], 4),
+                        "prompt": reply.get("prompt", prompt),
                         "tcp": obs["state"][:7].round(4).tolist(),
                         "raw_first": np.round(chunk[0], 4).tolist(),
                     }) + "\n")

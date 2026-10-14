@@ -7,12 +7,12 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 N="${1:?number of trials}"; SEED="${2:-0}"
-CONFIG="$ROOT/data/configs/demos_s${SEED}_n${N}.yaml"
+CONFIG="${DEMO_CONFIG:-$ROOT/data/configs/demos_s${SEED}_n${N}.yaml}"
 [ -f "$CONFIG" ] || "$ROOT/external/lerobot/.venv/bin/python" "$ROOT/scripts/make_trial_config.py" \
   --trials "$N" --seed "$SEED" --out "$CONFIG"
-BATCH="$ROOT/data/demos/batches/$(date +%Y%m%d_%H%M%S)_s${SEED}_n${N}"; mkdir -p "$BATCH/results"
+BATCH="${DEMO_BATCH_DIR:-$ROOT/data/demos/batches/$(date +%Y%m%d_%H%M%S)_s${SEED}_n${N}}"; mkdir -p "$BATCH/results"
 cp "$CONFIG" "$BATCH/config.yaml"
-export AIC_RECORD_DIR="$ROOT/data/demos/raw" AIC_RESULTS_DIR="$BATCH/results"
+export AIC_RECORD_DIR="${AIC_RECORD_DIR:-$ROOT/data/demos/raw}" AIC_RESULTS_DIR="$BATCH/results"
 
 pids=()
 cleanup() {

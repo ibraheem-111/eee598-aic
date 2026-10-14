@@ -15,9 +15,15 @@ With the base checkpoint (`lerobot/smolvla_base`), the AIC features are attached
 weights (SmolVLA pads state/action to 32 dims) and no normalization stats exist, so actions are
 meaningless until it is fine-tuned on AIC demos. That is enough to test the pipeline end to end.
 A fine-tuned checkpoint brings its own features and normalization processors.
+
+Context (checkpoints trained with scripts/train_smolvla.sh --context): an `aic_context.json` next to
+the checkpoint sets `prompt_style` ("plain" rewrites the task in plain words) and `target_refs` (the
+reference-image library). If the checkpoint has an observation.images.target_ref input, the server
+adds the library image for the task's port. Both need "task_fields" in the act request.
 """
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -42,7 +48,8 @@ def _aic_features():
 
 
 class SmolVLAServer:
-    def __init__(self, checkpoint: str, device: str = "cuda", num_steps: int | None = None):
+    def __init__(self, checkpoint: str, device: str = "cuda", num_steps: int | None = None,
+                 prompt_style: str | None = None, target_refs: str | None = None):
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -67,6 +74,18 @@ class SmolVLAServer:
 
         self.policy = SmolVLAPolicy.from_pretrained(checkpoint, config=cfg).to(self.device).eval()
         self.cfg = cfg
+
+        ctx_file = Path(checkpoint) / "aic_context.json"
+        ctx = json.loads(ctx_file.read_text()) if ctx_file.exists() else {}
+        self.prompt_style = prompt_style or ctx.get("prompt_style", "raw")
+        self.uses_ref = f"observation.images.{contract.TARGET_REF}" in cfg.input_features
+        self.refs = {}
+        if self.uses_ref:
+            from PIL import Image
+
+            ref_dir = Path(target_refs or ctx["target_refs"]).expanduser()
+            self.refs = {p.stem: np.asarray(Image.open(p).convert("RGB")) for p in ref_dir.glob("*.jpg")
+                         if p.stem != "contact_sheet"}
         self.info = {
             "checkpoint": checkpoint,
             "device": str(self.device),
@@ -75,6 +94,8 @@ class SmolVLAServer:
             "max_action_dim": cfg.max_action_dim,
             "num_steps": cfg.num_steps,
             "action_dim": contract.ACTION_DIM,
+            "prompt_style": self.prompt_style,
+            "target_ref": sorted(self.refs) if self.uses_ref else None,
         }
 
     def reset(self):
@@ -83,10 +104,20 @@ class SmolVLAServer:
         self.postprocessor.reset()
 
     @torch.no_grad()
-    def act(self, obs: dict, task: str, noise=None) -> np.ndarray:
+    def prompt_for(self, task: str, fields: dict | None) -> str:
+        if fields and self.prompt_style != "raw":
+            return contract.PROMPTS[self.prompt_style](fields)
+        return task or (contract.task_prompt(fields) if fields else "")
+
+    def act(self, obs: dict, task: str, noise=None, fields: dict | None = None) -> np.ndarray:
         from lerobot.policies.utils import prepare_observation_for_inference
 
         raw = {f"observation.images.{c}": obs["images"][c] for c in contract.CAMERAS}
+        if self.uses_ref:
+            port = (fields or {}).get("port_name")
+            if port not in self.refs:
+                raise KeyError(f"no target_ref image for port {port!r}; have {sorted(self.refs)}")
+            raw[f"observation.images.{contract.TARGET_REF}"] = self.refs[port]
         raw["observation.state"] = np.asarray(obs["state"], dtype=np.float32)
         batch = prepare_observation_for_inference(raw, self.device, task=task, robot_type="aic_ur5e")
         batch = self.preprocessor(batch)
@@ -106,10 +137,13 @@ class SmolVLAServer:
             return {"ok": True}
         if cmd == "act":
             t0 = time.perf_counter()
-            actions = self.act(msg["obs"], msg.get("task", ""), msg.get("noise"))
+            fields = msg.get("task_fields")
+            prompt = self.prompt_for(msg.get("task", ""), fields)
+            actions = self.act(msg["obs"], prompt, msg.get("noise"), fields)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
-            return {"actions": actions.astype(np.float32), "latency_s": time.perf_counter() - t0}
+            return {"actions": actions.astype(np.float32), "latency_s": time.perf_counter() - t0,
+                    "prompt": prompt}
         return {"error": f"unknown cmd {cmd!r}"}
 
 
@@ -141,8 +175,10 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--num-steps", type=int, default=None, help="flow-matching steps (default: checkpoint's)")
     ap.add_argument("--port", type=int, default=transport.DEFAULT_ADDRESS[1])
+    ap.add_argument("--prompt-style", choices=sorted(contract.PROMPTS), help="override aic_context.json")
+    ap.add_argument("--target-refs", help="reference image library (override aic_context.json)")
     args = ap.parse_args()
-    server = SmolVLAServer(args.checkpoint, args.device, args.num_steps)
+    server = SmolVLAServer(args.checkpoint, args.device, args.num_steps, args.prompt_style, args.target_refs)
     serve(server, (transport.DEFAULT_ADDRESS[0], args.port))
 
 

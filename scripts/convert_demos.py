@@ -10,6 +10,12 @@ Features follow policy/aic_smolvla/contract.py (what the SmolVLA server feeds th
   action                                         6 floats: TCP twist in base_link, from consecutive
                                                  recorded TCP poses (linear m/s, angular rad/s)
 Only episodes where AIC's scorer reported an insertion are kept, unless --include-failed.
+
+Context options (the "plain words + target port image" variant):
+  --prompt-style plain   task text in plain words (contract.task_prompt_plain) instead of AIC names
+  --target-refs DIR      add observation.images.target_ref: the reference image of the episode's target
+                         port from DIR (scripts/build_target_refs.py); the episodes the references were
+                         taken from are held out
 """
 
 import argparse
@@ -51,9 +57,10 @@ def twist_actions(state, t):
     return np.vstack([act, np.zeros((1, 6))]).astype(np.float32)
 
 
-def features(h, w):
+def features(h, w, with_ref=False):
+    cams = list(contract.CAMERAS) + ([contract.TARGET_REF] if with_ref else [])
     f = {f"observation.images.{c}": {"dtype": "video", "shape": (h, w, 3),
-                                     "names": ["height", "width", "channels"]} for c in contract.CAMERAS}
+                                     "names": ["height", "width", "channels"]} for c in cams}
     f["observation.state"] = {"dtype": "float32", "shape": (contract.STATE_DIM,), "names": contract.STATE_NAMES}
     f["action"] = {"dtype": "float32", "shape": (contract.ACTION_DIM,), "names": contract.ACTION_NAMES}
     return f
@@ -67,7 +74,15 @@ def main():
     ap.add_argument("--policy", default="cheatcode", help="only episodes recorded from this policy")
     ap.add_argument("--include-failed", action="store_true")
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--prompt-style", choices=sorted(contract.PROMPTS), default="raw")
+    ap.add_argument("--target-refs", type=Path, help="reference image library (build_target_refs.py)")
     args = ap.parse_args()
+    make_prompt = contract.PROMPTS[args.prompt_style]
+    held_out, ref_imgs = set(), {}
+    if args.target_refs:
+        refs = json.loads((args.target_refs / "refs.json").read_text())
+        held_out = {r["episode"] for r in refs.values()}
+        ref_imgs = {port: np.asarray(Image.open(args.target_refs / f"{port}.jpg").convert("RGB")) for port in refs}
 
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -77,7 +92,7 @@ def main():
         if not meta_path.exists():
             continue
         meta = json.loads(meta_path.read_text())
-        if meta["policy"] != args.policy or meta["frames"] < 10:
+        if meta["policy"] != args.policy or meta["frames"] < 10 or d.name in held_out:
             continue
         if not (meta["inserted"] or args.include_failed):
             print(f"skip (no insertion): {d.name}")
@@ -92,27 +107,33 @@ def main():
         shutil.rmtree(args.out)
     h, w = np.asarray(Image.open(next(episodes[0][0].glob("left_camera/*.jpg")))).shape[:2]
     fps = int(round(episodes[0][1]["fps"]))
-    ds = LeRobotDataset.create(repo_id=args.repo_id, fps=fps, features=features(h, w), root=args.out,
-                               robot_type="aic_ur5e", use_videos=True)
+    ds = LeRobotDataset.create(repo_id=args.repo_id, fps=fps, features=features(h, w, bool(ref_imgs)), root=args.out,
+                               robot_type="aic_ur5e", use_videos=True,
+                               image_writer_threads=8)
 
     total = 0
     for d, meta in episodes:
         data = np.load(d / "data.npz")
         state, t = data["state"], data["sim_t"]
         actions = twist_actions(state, t)
+        prompt = make_prompt(meta["task"])
+        ref = ref_imgs.get(meta["task"]["port_name"]) if ref_imgs else None
         for i in range(len(state)):
             frame = {f"observation.images.{c}": np.asarray(Image.open(d / c / f"{i:06d}.jpg").convert("RGB"))
                      for c in contract.CAMERAS}
             frame["observation.state"] = state[i]
             frame["action"] = actions[i]
-            frame["task"] = meta["prompt"]
+            if ref_imgs:
+                frame[f"observation.images.{contract.TARGET_REF}"] = ref
+            frame["task"] = prompt
             ds.add_frame(frame)
         ds.save_episode()
         total += len(state)
         lin = np.linalg.norm(actions[:, :3], axis=1)
-        print(f"{d.name}: {len(state)} frames, '{meta['prompt']}', max speed {lin.max():.3f} m/s")
+        print(f"{d.name}: {len(state)} frames, '{prompt}', max speed {lin.max():.3f} m/s")
     ds.finalize()
-    print(f"\n{len(episodes)} episodes, {total} frames, {fps} fps -> {args.out}")
+    print(f"\n{len(episodes)} episodes, {total} frames, {fps} fps, prompts={args.prompt_style}, "
+          f"target_ref={'yes' if ref_imgs else 'no'} -> {args.out}")
 
 
 if __name__ == "__main__":
