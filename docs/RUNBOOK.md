@@ -82,13 +82,13 @@ scripts/run_smolvla_policy.sh          # within 30 s; or scripts/run_policy.sh a
 external/lerobot/.venv/bin/python scripts/make_video.py outputs/videos/my_run.mp4 <episode_dir> [...]
 ```
 H.264 MP4 with the three wrist cameras side by side and a caption (policy, task, time, outcome).
-Plays in browsers, Slack and phones. Short clips live in `docs/media/`:
+Plays in browsers, Slack and phones. Short clips live in `docs/media/<date>_<label>/` (each folder has a README):
 
 | Clip | What it shows |
 |---|---|
-| [`bare_smolvla_3_trials.mp4`](media/bare_smolvla_3_trials.mp4) | Untrained `lerobot/smolvla_base` driving the arm: drifts away from the board at the 2 cm/s cap; safety stops at 150 mm (SFP) and on a 15 N force change (SC) |
-| [`cheatcode_demo_sfp.mp4`](media/cheatcode_demo_sfp.mp4) | One CheatCode SFP demo (inserted) |
-| [`cheatcode_demo_sc.mp4`](media/cheatcode_demo_sc.mp4) | One CheatCode SC demo (inserted) |
+| [`bare_smolvla_3_trials.mp4`](media/2026-10-14_baseline/bare_smolvla_3_trials.mp4) | Untrained `lerobot/smolvla_base` driving the arm: drifts away from the board at the 2 cm/s cap; safety stops at 150 mm (SFP) and on a 15 N force change (SC) |
+| [`cheatcode_demo_sfp.mp4`](media/2026-10-14_baseline/cheatcode_demo_sfp.mp4) | One CheatCode SFP demo (inserted) |
+| [`cheatcode_demo_sc.mp4`](media/2026-10-14_baseline/cheatcode_demo_sc.mp4) | One CheatCode SC demo (inserted) |
 
 ## 5. Sharing with the team
 
