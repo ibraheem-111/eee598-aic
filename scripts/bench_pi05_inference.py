@@ -1,5 +1,5 @@
 """π0.5 inference on AIC-shaped observations: load time, GPU memory, chunk latency, noise hook.
-    python pi05_infer.py [checkpoint] [dtype]
+    BENCH_DIR venv: python scripts/bench_pi05_inference.py [checkpoint] [dtype]   (needs lerobot[pi] and an HF login with the PaliGemma license accepted)
 """
 import sys, time, subprocess, os
 import numpy as np
