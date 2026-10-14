@@ -82,7 +82,7 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | Component | Version |
 |---|---|
 | NVIDIA driver / CUDA | 580.178.04 / 13.0 |
-| Isaac Sim / Isaac Lab | 5.1.0 / `main` @ `b0542fe2d` (AIC was tested with v2.3.2) |
+| Isaac Sim / Isaac Lab | 5.1.0 / 2.3.2 (`main` @ `b0542fe2d`, the version AIC was tested with) |
 | AIC toolkit | `e914548` |
 | LeRobot / PyTorch | `e0d50211` / 2.11.0+cu128 |
 | SmolVLA base | `lerobot/smolvla_base`, 450M params, ~1 GB VRAM loaded |
