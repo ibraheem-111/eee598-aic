@@ -19,7 +19,8 @@ into a port on a randomized task board.
 eee598-aic/
 ├── policy/        aic_model Policy class: SmolVLA + DSRL noise policy (what gets evaluated)
 ├── training/      SmolVLA fine-tuning and DSRL training in Isaac Lab
-├── scripts/       setup.sh and other helpers
+├── scripts/       setup.sh, sync_skills.sh and other helpers
+├── .claude/skills/ Isaac Lab / Isaac Sim agent skills, pinned (see .claude/skills/SOURCE.md)
 ├── docs/          notes, results, figures for the report
 ├── external.lock  third-party repos pinned to the commits we use
 ├── external/      (not in git) links to the AIC, Isaac Lab and LeRobot checkouts
