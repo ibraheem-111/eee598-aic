@@ -1,0 +1,5 @@
+# Third-party repos this project builds on, pinned to the commits we use.
+# Format: <name> <git url> <commit> <default local path>
+aic       https://github.com/intrinsic-dev/aic.git      e9145480c945f2afc3741f355233f44082cc3b06  ~/ws_aic/src/aic
+IsaacLab  https://github.com/isaac-sim/IsaacLab.git     b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8  ~/IsaacLab
+lerobot   https://github.com/huggingface/lerobot.git    e0d50211ef236143ae867228662b7dfaba554f02  ~/lerobot

@@ -1,0 +1,15 @@
+# Third-party checkouts and environments (linked in by scripts/setup.sh)
+external/
+# Large files: datasets, sim results, checkpoints, logs
+data/
+outputs/
+logs/
+wandb/
+
+__pycache__/
+*.egg-info/
+.venv/
+.pixi/
+*.pt
+*.ckpt
+*.safetensors
