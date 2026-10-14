@@ -114,4 +114,6 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | 2026-10-14 | Gazebo GPU rendering fixed (was silently CPU-rendering at ~2% real time) |
 | 2026-10-14 | CheatCode demo recording + randomized trial configs + LeRobot conversion; first batch 6/6 inserted (553/600); ~300-demo run started |
 | 2026-10-14 | Bare SmolVLA run recorded on video (`docs/media/2026-10-14_baseline/`); team runbook in `docs/RUNBOOK.md` |
+| 2026-10-14 | 306 CheatCode demos recorded (256 inserted) → LeRobot dataset `data/demos/lerobot/aic_cheatcode` (77k frames) |
+| 2026-10-14 | Third-person sample videos: bare SmolVLA 29/600 vs CheatCode 414/600 on the same 6 trials (`docs/media/2026-10-14_smolvla_base_behavior/`) |
 | next | Fine-tune SmolVLA on `data/demos/lerobot/aic_cheatcode`; serve the checkpoint; evaluate in Gazebo |

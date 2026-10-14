@@ -18,19 +18,22 @@ import time
 # name: (camera position, look-at point), world frame. Robot base is at (-0.2, 0.2, 1.14),
 # the task board around (0.15..0.2, -0.2..0.05, 1.14).
 VIEWS = {
-    "overview": ((0.95, 0.80, 1.85), (0.0, -0.05, 1.22)),
-    "side": ((-0.05, -1.25, 1.50), (0.0, -0.05, 1.22)),
+    "overview": ((1.05, 0.35, 1.95), (0.0, -0.05, 1.32)),
+    "side": ((-0.05, -1.45, 1.55), (0.0, -0.05, 1.32)),
 }
-WIDTH, HEIGHT, FOV, RATE = 960, 540, 1.05, 10
+WIDTH, HEIGHT, FOV, RATE = 960, 540, 1.15, 10
 
 
-def camera_sdf(name, eye, target):
+def look_at(eye, target):
     dx, dy, dz = (t - e for t, e in zip(target, eye))
     yaw = math.atan2(dy, dx)
     pitch = math.atan2(-dz, math.hypot(dx, dy))  # positive pitch looks down in Gazebo
+    return pitch, yaw
+
+
+def camera_sdf(name):
     return f"""<?xml version="1.0"?>
 <sdf version="1.9"><model name="observer_{name}"><static>true</static>
-  <pose>{eye[0]} {eye[1]} {eye[2]} 0 {pitch:.4f} {yaw:.4f}</pose>
   <link name="link"><sensor name="camera" type="camera">
     <camera><horizontal_fov>{FOV}</horizontal_fov>
       <image><width>{WIDTH}</width><height>{HEIGHT}</height><format>R8G8B8</format></image>
@@ -48,9 +51,12 @@ def in_container(cmd, **kw):
 
 def main():
     for name, (eye, target) in VIEWS.items():
-        sdf = camera_sdf(name, eye, target).replace("'", "'\\''")
+        sdf = camera_sdf(name).replace("'", "'\\''")
+        pitch, yaw = look_at(eye, target)
+        # ros_gz_sim create ignores the model's <pose>; the spawn pose must be given as flags
+        pose = f"-x {eye[0]} -y {eye[1]} -z {eye[2]} -R 0 -P {pitch:.4f} -Y {yaw:.4f}"
         for attempt in range(12):  # the world may still be loading
-            p = in_container(f"ros2 run ros_gz_sim create -world aic_world -name observer_{name} -string '{sdf}'")
+            p = in_container(f"ros2 run ros_gz_sim create -world aic_world -name observer_{name} {pose} -string '{sdf}'")
             if p.wait(timeout=60) == 0:
                 break
             time.sleep(5)

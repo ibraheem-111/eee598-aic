@@ -90,6 +90,19 @@ Plays in browsers, Slack and phones. Short clips live in `docs/media/<date>_<lab
 | [`cheatcode_demo_sfp.mp4`](media/2026-10-14_baseline/cheatcode_demo_sfp.mp4) | One CheatCode SFP demo (inserted) |
 | [`cheatcode_demo_sc.mp4`](media/2026-10-14_baseline/cheatcode_demo_sc.mp4) | One CheatCode SC demo (inserted) |
 
+## 4b. Record sample sessions with third-person views
+
+```bash
+scripts/record_samples.sh <label> smolvla 6 100      # bare or fine-tuned SmolVLA (5th arg: checkpoint)
+scripts/record_samples.sh <label> cheatcode 6 100    # same trials, for comparison
+external/lerobot/.venv/bin/python scripts/compare_video.py OUT.mp4 \
+  data/samples/<date>_<label>/smolvla/episodes/<ep>/ data/samples/<date>_<label>/smolvla/observer \
+  data/samples/<date>_<label>/cheatcode/episodes/<ep>/ data/samples/<date>_<label>/cheatcode/observer
+```
+Adds two collision-free outside cameras (overview, side; `scripts/observer_cameras.py`). Videos go to
+`docs/media/<date>_<label>/`, raw data to `data/samples/<date>_<label>/`. Example:
+[`2026-10-14_smolvla_base_behavior`](media/2026-10-14_smolvla_base_behavior/README.md).
+
 ## 5. Sharing with the team
 
 | What | How |
@@ -106,3 +119,5 @@ Plays in browsers, Slack and phones. Short clips live in `docs/media/<date>_<lab
 | WaveArm baseline | 3 | validity point only |
 | Bare SmolVLA (`smolvla_base`), safety limits on | 3 | no penalties; stops on drift/force |
 | CheatCode, 6 randomized trials (batch 1) | 553 / 600 | 6/6 inserted, incl. 2 SC and a rotated board |
+| CheatCode demo run, 306 randomized trials | – | 256 inserted (84%); dataset: 256 episodes, 77,453 frames |
+| Bare SmolVLA vs CheatCode, 6 trials (seed 100) | 29.1 vs 414.2 / 600 | [`2026-10-14_smolvla_base_behavior`](media/2026-10-14_smolvla_base_behavior/README.md) |
