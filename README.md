@@ -24,12 +24,14 @@ eee598-aic/
 ├── docs/          notes, results, figures for the report
 ├── external.lock  third-party repos pinned to the commits we use
 ├── external/      (not in git) links to the AIC, Isaac Lab and LeRobot checkouts
-├── data/          (not in git) datasets, Gazebo results (aic_results)
+├── data/          (not in git) demos (raw + LeRobot dataset), trial configs, Gazebo results
 └── outputs/       (not in git) checkpoints, training logs
 ```
 
 Only our own code goes in this repo. Large files (datasets, checkpoints) go on the Hugging Face Hub,
 which LeRobot reads and writes directly.
+
+**How to run everything, where data is stored, and how to share it: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).**
 
 ## Setup
 
@@ -110,4 +112,6 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | 2026-10-14 | Isaac Lab 3.0 EA trial in `~/IsaacLab-3`: installs and AIC task ports, but verdict is wait (see `docs/isaaclab3_trial.md`) |
 | 2026-10-14 | SmolVLA pipeline runs end to end in Gazebo (`policy/`): server + RunSmolVLA policy, safety stops, sim-time pacing |
 | 2026-10-14 | Gazebo GPU rendering fixed (was silently CPU-rendering at ~2% real time) |
-| next | Record CheatCode demos as a LeRobot dataset; fine-tune SmolVLA; serve the checkpoint |
+| 2026-10-14 | CheatCode demo recording + randomized trial configs + LeRobot conversion; first batch 6/6 inserted (553/600); ~300-demo run started |
+| 2026-10-14 | Bare SmolVLA run recorded on video (`docs/media/bare_smolvla_3_trials.mp4`); team runbook in `docs/RUNBOOK.md` |
+| next | Fine-tune SmolVLA on `data/demos/lerobot/aic_cheatcode`; serve the checkpoint; evaluate in Gazebo |

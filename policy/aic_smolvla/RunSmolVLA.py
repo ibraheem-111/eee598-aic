@@ -23,6 +23,7 @@ Settings (environment variables):
     AIC_SMOLVLA_MAX_FORCE    max change in wrist force from its start value, N (15)
     AIC_SMOLVLA_FRAME        twist frame: base_link or gripper/tcp (base_link)
     AIC_SMOLVLA_LOG_DIR      per-trial JSONL logs (~/eee598-aic/outputs/smolvla_runs)
+    AIC_RECORD_DIR           if set, also record each trial (cameras, state, preview.mp4) there
 """
 
 import json
@@ -42,6 +43,7 @@ from aic_task_interfaces.msg import Task
 from geometry_msgs.msg import Twist, Vector3, Wrench
 
 from aic_smolvla import contract, transport
+from aic_smolvla.recording import EpisodeRecorder, subscribe_insertion
 
 
 def _env(name, default, cast=float):
@@ -62,6 +64,11 @@ class RunSmolVLA(Policy):
         self.log_dir = Path(
             os.path.expanduser(_env("LOG_DIR", "~/eee598-aic/outputs/smolvla_runs", str))
         )
+
+        self.record_root = os.environ.get("AIC_RECORD_DIR")
+        self._recorder = None
+        if self.record_root:
+            self._insertion_sub = subscribe_insertion(self, lambda: self._recorder)
 
         address = (transport.DEFAULT_ADDRESS[0], _env("PORT", transport.DEFAULT_ADDRESS[1], int))
         deadline = time.monotonic() + 60
@@ -130,6 +137,9 @@ class RunSmolVLA(Policy):
             run_for = min(run_for, max(1.0, float(task.time_limit) - 5.0))
         self.get_logger().info(f"RunSmolVLA.insert_cable: '{prompt}' for {run_for:.0f}s")
         transport.request(self.conn, {"cmd": "reset"})
+        if self.record_root:
+            self._recorder = EpisodeRecorder(self, get_observation, self.record_root, task,
+                                             "smolvla").start()
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self.log_dir / f"{time.strftime('%Y%m%d_%H%M%S')}_{task.id or 'task'}.jsonl"
@@ -199,4 +209,8 @@ class RunSmolVLA(Policy):
                 }
                 log.write(json.dumps(summary) + "\n")
                 self.get_logger().info(f"RunSmolVLA done: {summary} | log {log_path}")
+                if self._recorder:
+                    folder, _ = self._recorder.stop(summary)
+                    self._recorder = None
+                    self.get_logger().info(f"RunSmolVLA recording -> {folder}")
         return True
