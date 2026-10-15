@@ -1,59 +1,60 @@
 #!/usr/bin/env python3
-"""Side-by-side video of two policies on the same trial (e.g. SmolVLA vs CheatCode, same seed).
+"""Side-by-side H.264 video of two policies on the same trials (center wrist camera each).
 
-    external/lerobot/.venv/bin/python scripts/compare_video.py OUT.mp4 \
-        EPISODE_A OBSERVER_A EPISODE_B OBSERVER_B [--view overview]
+    external/lerobot/.venv/bin/python scripts/compare_video.py OUT.mp4 LABEL_A EVAL_DIR_A LABEL_B EVAL_DIR_B TRIAL_INDEX [...]
 
-Shows the chosen third-person view of each run (left: A, right: B), time-aligned from each episode's
-start, with the center wrist camera inset. The shorter episode holds its last frame.
+EVAL_DIR_* are outputs/eval/<label>/<config>/ folders from scripts/eval_policy.sh; trial indices are
+1-based positions in their episodes/ folders (the order trials ran). Frames are matched by index and the
+shorter episode holds its last frame.
 """
-
-import argparse
 import json
 import sys
 from pathlib import Path
 
+import av
 import cv2
 import numpy as np
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from make_video import Observer, Writer, caption, label, outcome_of  # noqa: E402
+import yaml
 
 
-def panel(ep: Path, obs: Observer, view: str, width=720):
-    meta = json.loads((ep / "meta.json").read_text())
-    t = np.load(ep / "data.npz")["sim_t"]
-    frames = []
-    stamps, files = obs.views[view]
-    for i in range(meta["frames"]):
-        j = int(np.clip(np.searchsorted(stamps, int(t[i] * 1e9)), 0, len(files) - 1))
-        img = cv2.imread(str(files[j]))
-        img = cv2.resize(img, (width, round(img.shape[0] * width / img.shape[1])))
-        wrist = cv2.imread(str(ep / "center_camera" / f"{i:06d}.jpg"))
-        wrist = cv2.resize(wrist, (width // 3, round(wrist.shape[0] * (width // 3) / wrist.shape[1])))
-        h, w = wrist.shape[:2]
-        img[-h - 8:-8, -w - 8:-8] = label(wrist, "wrist")
-        frames.append(caption(img, [f"{meta['policy']}", f"t = {t[i] - t[0]:5.1f} s | {outcome_of(meta)}"]))
-    return frames, meta
+def load(eval_dir, i):
+    d = sorted((Path(eval_dir) / "episodes").glob("*/"))[i - 1]
+    meta = json.loads((d / "meta.json").read_text())
+    frames = sorted((d / "center_camera").glob("*.jpg"))
+    score = yaml.safe_load(open(Path(eval_dir) / "scoring.yaml")).get(f"trial_{i}", {})
+    msg = score.get("tier_3", {}).get("message", "")
+    return frames, meta, msg
+
+
+def panel(img, title, sub):
+    img = cv2.resize(img, (576, 512), interpolation=cv2.INTER_CUBIC)
+    bar = np.zeros((52, img.shape[1], 3), np.uint8)
+    cv2.putText(bar, title, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(bar, sub, (8, 43), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1, cv2.LINE_AA)
+    return np.vstack([bar, img])
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("out", type=Path)
-    ap.add_argument("ep_a", type=Path)
-    ap.add_argument("obs_a", type=Path)
-    ap.add_argument("ep_b", type=Path)
-    ap.add_argument("obs_b", type=Path)
-    ap.add_argument("--view", default="overview")
-    args = ap.parse_args()
-    a, meta_a = panel(args.ep_a, Observer(args.obs_a), args.view)
-    b, _ = panel(args.ep_b, Observer(args.obs_b), args.view)
-    writer = Writer(args.out)
-    for i in range(max(len(a), len(b))):
-        row = np.hstack([a[min(i, len(a) - 1)], np.zeros((a[0].shape[0], 6, 3), np.uint8), b[min(i, len(b) - 1)]])
-        writer.write(caption(row, [f"Same trial: {meta_a['prompt']}"]), meta_a["fps"])
-    writer.close()
-    print(f"{args.out}: {len(a)} vs {len(b)} frames")
+    out, la, da, lb, db, *trials = sys.argv[1:]
+    c = av.open(out, "w")
+    s = c.add_stream("libx264", rate=10)
+    s.width, s.height, s.pix_fmt, s.options = 1160, 564 + 30, "yuv420p", {"crf": "21"}
+    for t in map(int, trials):
+        (fa, ma, ra), (fb, mb, rb) = load(da, t), load(db, t)
+        head = f"held-out trial {t}: {ma['task']['plug_name']} -> {ma['task']['port_name']} on {ma['task']['target_module_name']}"
+        for k in range(max(len(fa), len(fb))):
+            A = panel(cv2.imread(str(fa[min(k, len(fa) - 1)])), la, ra[:70])
+            B = panel(cv2.imread(str(fb[min(k, len(fb) - 1)])), lb, rb[:70])
+            row = np.hstack([A, np.zeros((A.shape[0], 8, 3), np.uint8), B])
+            top = np.zeros((30, row.shape[1], 3), np.uint8)
+            cv2.putText(top, f"{head}   t={k / 10:4.1f}s", (8, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+            frame = np.vstack([top, row])[: s.height, : s.width, ::-1]
+            for p in s.encode(av.VideoFrame.from_ndarray(np.ascontiguousarray(frame), format="rgb24")):
+                c.mux(p)
+    for p in s.encode():
+        c.mux(p)
+    c.close()
+    print(out)
 
 
 if __name__ == "__main__":
