@@ -6,10 +6,9 @@
 Needs extract_commands.py to have run first (it records which bag belongs to which episode).
 Writes, per episode:
   wrench.npz   t, force (N, 3), torque (N, 3) from /fts_broadcaster/wrench (sim time)
-  tf.json      every transform in /tf_static, plus the first and last value of each /tf transform
-               except cable links and gripper fingers: task board pose, target port frames
-               (incl. the port entrance), robot links, camera mounts and optical frames.
-               Enough to project the port into the camera images later.
+  tf.json      every transform in /tf_static (camera mounts and optical frames, gripper TCP), plus
+               the first and last value of the task board and port frames (incl. the port
+               entrance). With each frame's TCP pose, enough to project the port into the images.
 """
 
 import argparse
@@ -30,12 +29,19 @@ def tf_row(t, stamp):
 
 
 def extract(bag_dir: Path):
-    wrench, static, first, last = [], {}, {}, {}
+    """Decode only what we keep: all wrench and static TF messages, and the /tf messages that carry
+    task-board frames (~33 per trial). Robot-link /tf messages (~33k per trial) are skipped unread;
+    the TCP pose is already in each episode's state."""
+    decoders, wrench, static, first, last = {}, [], {}, {}, {}
     for f in sorted(bag_dir.glob("*.mcap")):
         with open(f, "rb") as fh:
-            reader = make_reader(fh, decoder_factories=[DecoderFactory()])
-            for _, ch, _, m in reader.iter_decoded_messages(
-                    topics=["/fts_broadcaster/wrench", "/tf", "/tf_static"]):
+            reader = make_reader(fh)
+            for schema, ch, msg in reader.iter_messages(topics=["/fts_broadcaster/wrench", "/tf", "/tf_static"]):
+                if ch.topic == "/tf" and b"task_board" not in msg.data:
+                    continue
+                if ch.id not in decoders:
+                    decoders[ch.id] = DecoderFactory().decoder_for(ch.message_encoding, schema)
+                m = decoders[ch.id](msg.data)
                 if ch.topic == "/fts_broadcaster/wrench":
                     s, w = m.header.stamp, m.wrench
                     wrench.append((s.sec + s.nanosec * 1e-9, w.force.x, w.force.y, w.force.z,
@@ -78,7 +84,7 @@ def main():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", type=Path, default=ROOT / "data/demos/raw")
-    ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--workers", type=int, default=2)  # keep CPU light
     args = ap.parse_args()
     eps = sorted(args.raw.glob("*cheatcode*/"))
     with ProcessPoolExecutor(args.workers) as pool:

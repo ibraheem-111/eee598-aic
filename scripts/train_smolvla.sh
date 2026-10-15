@@ -24,7 +24,7 @@ source "$ROOT/external/lerobot/.venv/bin/activate"
 lerobot-train \
   --policy.path="$BASE" \
   --dataset.repo_id="local/$(basename "$DATA")" --dataset.root="$DATA" \
-  --batch_size=16 --steps="$STEPS" --num_workers=6 \
+  --batch_size=16 --steps="$STEPS" --num_workers=3 \
   --policy.scheduler_decay_steps="$STEPS" \
   --log_freq=100 --save_freq=5000 \
   --policy.device=cuda --policy.push_to_hub=false --wandb.enable=false \

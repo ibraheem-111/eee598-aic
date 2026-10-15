@@ -17,6 +17,8 @@ See README.md for the goal, layout, setup and progress log.
   (sim time), never wall-clock time.
 - Other projects' containers share this machine: txmem-os-api holds port 8765, and openjev-llama (a
   llama.cpp server) takes ~9.4 GB VRAM when running; stop it (`docker stop openjev-llama`) for GPU work.
+- The user is fine with GPU use but wants the CPU kept light: cap parallel workers/threads at ~2–3,
+  never fan out across all cores, and avoid running several CPU-heavy jobs at once.
 - Wrap GPU-heavy runs in `flock /tmp/claude-1000/gpu.lock ...` when several sessions share the GPU.
 - Dev GPU is an RTX 5070 with 12 GB VRAM; don't run SmolVLA training and Isaac Lab at the same time.
 - The engine writes a ~1.6 GB bag per trial. Scripts extract what we use (commands.npz, wrench.npz,

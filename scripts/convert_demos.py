@@ -109,7 +109,7 @@ def main():
     fps = int(round(episodes[0][1]["fps"]))
     ds = LeRobotDataset.create(repo_id=args.repo_id, fps=fps, features=features(h, w, bool(ref_imgs)), root=args.out,
                                robot_type="aic_ur5e", use_videos=True,
-                               image_writer_threads=8)
+                               image_writer_threads=3)  # keep CPU light
 
     total = 0
     for d, meta in episodes:
