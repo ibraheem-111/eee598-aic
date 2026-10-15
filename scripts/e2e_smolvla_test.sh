@@ -29,6 +29,7 @@ echo "policy..."; setsid "$ROOT/scripts/run_smolvla_policy.sh" >"$OUT/policy.log
 timeout "${E2E_TIMEOUT:-1200}" bash -c "until [ -f '$AIC_RESULTS_DIR/scoring.yaml' ]; do sleep 5; done"
 status=$?
 cp "$AIC_RESULTS_DIR/scoring.yaml" "$OUT/" 2>/dev/null
+[ "${KEEP_BAGS:-0}" = 1 ] || rm -rf "$AIC_RESULTS_DIR"/bag_trial_*
 grep -E '^total' "$OUT/scoring.yaml" 2>/dev/null
 echo "logs in $OUT (exit $status)"
 exit $status

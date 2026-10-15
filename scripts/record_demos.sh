@@ -2,7 +2,8 @@
 # Record CheatCode demonstrations on randomized trials (headless).
 #   scripts/record_demos.sh <n_trials> [seed]
 # Episodes:  data/demos/raw/<time>_cheatcode_<port>/   (one folder per trial, see policy/aic_smolvla/recording.py)
-# Per batch: data/demos/batches/<time>_s<seed>_n<n>/   (config, engine scores, logs)
+# Per batch: data/demos/batches/<time>_s<seed>_n<n>/   (config, engine scores, logs; bags are deleted
+#            after extracting commands.npz, wrench.npz and tf.json into each episode)
 # Then build the training dataset with scripts/convert_demos.py.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,4 +34,13 @@ timeout "$(( N * 150 + 300 ))" bash -c "until [ -f '$BATCH/results/scoring.yaml'
 status=$?
 grep -h 'Recorded ' "$BATCH/policy.log" | sed 's/.*Recorded/Recorded/'
 grep -E '^total' "$BATCH/results/scoring.yaml" 2>/dev/null
+
+# Keep what training can use from the engine bags (commanded poses, wrist force, board/port poses),
+# then drop the bags (~1.6 GB per trial). KEEP_BAGS=1 keeps them.
+if [ "${KEEP_BAGS:-0}" != 1 ] && [ "$AIC_RECORD_DIR" = "$ROOT/data/demos/raw" ]; then
+  PY="$ROOT/external/lerobot/.venv/bin/python"
+  "$PY" "$ROOT/scripts/extract_commands.py" > "$BATCH/extract_commands.log" 2>&1 \
+    && "$PY" "$ROOT/scripts/extract_extras.py" > "$BATCH/extract_extras.log" 2>&1 \
+    && rm -rf "$BATCH"/results/bag_trial_*
+fi
 exit $status

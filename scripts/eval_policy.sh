@@ -29,4 +29,6 @@ else
   fi
   E2E_OUT="$OUT" E2E_CONFIG="$CONFIG" E2E_TIMEOUT=$(( N * 150 + 300 )) "$ROOT/scripts/e2e_smolvla_test.sh" "$POLICY"
 fi
+# Engine bags are ~1.6 GB per trial and nothing downstream reads them; scores and recordings stay.
+[ "${KEEP_BAGS:-0}" = 1 ] || rm -rf "$OUT"/results/bag_trial_*
 echo "== $LABEL on $(basename "$CONFIG"): $(grep -E '^total' "$OUT/scoring.yaml" 2>/dev/null)"

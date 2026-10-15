@@ -19,6 +19,9 @@ See README.md for the goal, layout, setup and progress log.
   llama.cpp server) takes ~9.4 GB VRAM when running; stop it (`docker stop openjev-llama`) for GPU work.
 - Wrap GPU-heavy runs in `flock /tmp/claude-1000/gpu.lock ...` when several sessions share the GPU.
 - Dev GPU is an RTX 5070 with 12 GB VRAM; don't run SmolVLA training and Isaac Lab at the same time.
+- The engine writes a ~1.6 GB bag per trial. Scripts extract what we use (commands.npz, wrench.npz,
+  tf.json per episode) and delete bags unless KEEP_BAGS=1; never let them accumulate (they once hit 476 GB).
+- Waiting loops must check files, never `pgrep -f <name>`: the loop's own command line matches.
 - Update the progress log in README.md when a milestone is reached.
 
 ## Isaac skills (.claude/skills/)
