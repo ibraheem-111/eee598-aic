@@ -100,6 +100,30 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | SmolVLA base | `lerobot/smolvla_base`, 450M params, ~1 GB VRAM loaded |
 | Pixi | 0.67.2 |
 
+## Datasets and models (Hugging Face)
+
+All private under `muhammad-ibraheem`, grouped in the collection
+[EEE 598 AIC cable insertion](https://huggingface.co/collections/muhammad-ibraheem/eee-598-aic-cable-insertion-6ae27ff563a029e6bf17de66).
+Datasets are LeRobot v3.0 (load with `LeRobotDataset("muhammad-ibraheem/<name>")`); models are the final
+checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --local-dir <dir>`, then serve with
+`scripts/run_smolvla_server.sh <dir>`; the server reads local files next to the weights). Scores are on the
+12 held-out trials (`data/configs/eval_s100_n12.yaml`, max 1200).
+
+| Dataset | Contents |
+|---|---|
+| [aic-cheatcode-v1](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v1) | 256 CheatCode demos, 77k frames, actions from measured motion, 26-dim state |
+| [aic-cheatcode-v1-context](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v1-context) | v1 with plain-words prompts and a target-port reference image |
+| [aic-cheatcode-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v2) | 256 demos, 41k frames: frozen tail trimmed, commanded actions (+ `action.pose`), force/torque (32-dim state) |
+| [aic-cheatcode-v3](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v3) | v2 fixes on 427 demos, 69k frames |
+
+| Model | Trained on | Steps | Score | Inserted |
+|---|---|---|---|---|
+| [smolvla-aic-v1](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v1) | v1 | 15k | 351 | 0 |
+| [smolvla-aic-v1-context](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v1-context) | v1-context | 15k | 337 | 0 |
+| [smolvla-aic-v2](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v2) | v2 | 40k | 272 | 0 |
+| [smolvla-aic-v3](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v3) | v3 | 40k | 272 | 1 partial |
+| [act-aic-v3](https://huggingface.co/muhammad-ibraheem/act-aic-v3) | v3 | 50k | 268 | 0 |
+
 ## Progress log
 
 | Date | Milestone |
