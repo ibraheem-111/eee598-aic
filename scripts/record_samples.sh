@@ -4,6 +4,8 @@
 # Same label + seed with both policies gives the same trials, for side-by-side comparisons.
 # Raw data: data/samples/<date>_<label>/<policy>/   Videos: docs/media/<date>_<label>/
 # SmolVLA safety settings come from AIC_SMOLVLA_* (defaults here: 150 mm drift, 20 s per trial).
+# SAMPLES_CONFIG=<config.yaml> runs an existing trial config instead (N must match its trial count), e.g.
+# to watch an evaluation set from the third-person views.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LABEL="${1:?label}"; POLICY="${2:?smolvla or cheatcode}"; N="${3:-6}"; SEED="${4:-100}"
@@ -11,9 +13,10 @@ CKPT="${5:-lerobot/smolvla_base}"
 DAY="$(date +%Y-%m-%d)"
 OUT="$ROOT/data/samples/${DAY}_${LABEL}/$POLICY"; MEDIA="$ROOT/docs/media/${DAY}_${LABEL}"
 rm -rf "$OUT"; mkdir -p "$OUT/results" "$MEDIA"
-CONFIG="$ROOT/data/configs/samples_s${SEED}_n${N}.yaml"
+CONFIG="${SAMPLES_CONFIG:-$ROOT/data/configs/samples_s${SEED}_n${N}.yaml}"
 [ -f "$CONFIG" ] || "$ROOT/external/lerobot/.venv/bin/python" "$ROOT/scripts/make_trial_config.py" \
   --trials "$N" --seed "$SEED" --out "$CONFIG"
+CONFIG="$(realpath "$CONFIG")"  # the engine runs in the container and can't resolve relative paths
 cp "$CONFIG" "$OUT/config.yaml"
 export AIC_RECORD_DIR="$OUT/episodes" AIC_RESULTS_DIR="$OUT/results" AIC_SMOLVLA_LOG_DIR="$OUT/smolvla_runs"
 export AIC_SMOLVLA_MAX_DRIFT="${AIC_SMOLVLA_MAX_DRIFT:-0.15}" AIC_SMOLVLA_MAX_SECONDS="${AIC_SMOLVLA_MAX_SECONDS:-20}"

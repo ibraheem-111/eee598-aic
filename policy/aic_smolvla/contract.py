@@ -25,6 +25,9 @@ STATE_NAMES = (
     + [f"tcp_error.{a}" for a in ("x", "y", "z", "rx", "ry", "rz")]
     + [f"joint_positions.{i}" for i in range(7)]
 )
+WRENCH_NAMES = [f"wrist_wrench.force.{a}" for a in "xyz"] + [f"wrist_wrench.torque.{a}" for a in "xyz"]
+STATE_NAMES_WRENCH = list(STATE_NAMES) + WRENCH_NAMES  # 32: state plus wrist force/torque
+POSE_NAMES = [f"pose.position.{a}" for a in "xyz"] + [f"pose.orientation.{a}" for a in "xyzw"]
 ACTION_NAMES = [f"linear.{a}" for a in "xyz"] + [f"angular.{a}" for a in "xyz"]
 STATE_DIM = len(STATE_NAMES)  # 26
 ACTION_DIM = len(ACTION_NAMES)  # 6
@@ -58,10 +61,17 @@ def state_to_numpy(obs_msg) -> np.ndarray:
     )
 
 
+def wrench_to_numpy(obs_msg) -> np.ndarray:
+    """Wrist force/torque (/fts_broadcaster/wrench via the observation), in WRENCH_NAMES order."""
+    f, m = obs_msg.wrist_wrench.wrench.force, obs_msg.wrist_wrench.wrench.torque
+    return np.array([f.x, f.y, f.z, m.x, m.y, m.z], dtype=np.float32)
+
+
 def observation_to_numpy(obs_msg) -> dict:
     """Observation message -> plain dict of numpy arrays, ready to send to the server."""
     return {
         "state": state_to_numpy(obs_msg),
+        "wrench": wrench_to_numpy(obs_msg),
         "images": {
             cam: image_to_numpy(getattr(obs_msg, cam.replace("_camera", "_image")))
             for cam in CAMERAS

@@ -116,4 +116,12 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 | 2026-10-14 | Bare SmolVLA run recorded on video (`docs/media/2026-10-14_baseline/`); team runbook in `docs/RUNBOOK.md` |
 | 2026-10-14 | 306 CheatCode demos recorded (256 inserted) → LeRobot dataset `data/demos/lerobot/aic_cheatcode` (77k frames) |
 | 2026-10-14 | Third-person sample videos: bare SmolVLA 29/600 vs CheatCode 414/600 on the same 6 trials (`docs/media/2026-10-14_smolvla_base_behavior/`) |
-| next | Fine-tune SmolVLA on `data/demos/lerobot/aic_cheatcode`; serve the checkpoint; evaluate in Gazebo |
+| 2026-10-26 | Fine-tuned SmolVLA (15k steps): 351/1200 on 12 held-out trials, 0 inserted, ends ~6 cm from the port; plain-words + port-image context: 337, no gain |
+| 2026-10-26 | Comparison videos (`docs/media/before_vs_after_training.mp4`, `without_vs_with_context.mp4`) via `scripts/compare_observer_video.py` |
+| 2026-10-27 | Found ~55% of every demo is the arm frozen after the plug seats (zero-action labels). Dataset v2 (`aic_cheatcode_v2`, 41k frames): tail trimmed 1 s after rest, actions from CheatCode's commanded poses, wrist force/torque in the state (32) |
+| 2026-10-27 | SmolVLA on v2 (40k steps): 272/1200, 0 inserted, median 7 cm. No longer freezes early but pushes in the wrong place (4 force stops): lateral port localization is the bottleneck |
+| 2026-10-27 | 200 more CheatCode demos (seeds 14–21, 171 inserted) → 427 usable demos |
+| 2026-10-28 | SmolVLA on v3 (427 demos, 69k frames, 40k steps): 272/1200 with the **first partial insertion** (held-out trial 4, SC port, 1 cm from seated, 57 pts; `docs/media/ft_v3_trial4_partial_insertion.mp4`). Two trials ended within 5 s at -11 each after a 30+ cm jump faster than the policy's 6 cm/s cap |
+| 2026-10-28 | SmolVLA v3 with the 30 N force stop off: 222/1200; trial 4 still stops 1 cm short, extra pushing costs force penalties, so the stop stays |
+| 2026-10-28 | ACT baseline from scratch on v3 (52M params, 50k steps, 75 min; `scripts/train_act.sh`, served by the same server): 268/1200, 0 inserted, median 8.5 cm, two trials at 2 cm |
+| next | X-VLA on v3; port localization input |

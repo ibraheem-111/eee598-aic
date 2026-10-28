@@ -11,6 +11,16 @@ Features follow policy/aic_smolvla/contract.py (what the SmolVLA server feeds th
                                                  recorded TCP poses (linear m/s, angular rad/s)
 Only episodes where AIC's scorer reported an insertion are kept, unless --include-failed.
 
+Data fixes (the "v2" dataset):
+  --trim-rest SECONDS        end each inserted episode SECONDS after the TCP last moved. CheatCode keeps
+                             commanding a descent for ~18 s after the plug seats, so without this over
+                             half of every demo is the arm standing still with a zero action.
+  --action-source commanded  label actions from CheatCode's commanded poses (commands.npz,
+                             scripts/extract_commands.py) instead of the TCP poses it reached; also adds
+                             action.pose, the commanded TCP pose (7 floats), for absolute-pose policies
+  --wrench                   append wrist force/torque (wrench.npz, scripts/extract_extras.py; the latest
+                             sample at each frame, as the live policy sees it) to observation.state (32)
+
 Context options (the "plain words + target port image" variant):
   --prompt-style plain   task text in plain words (contract.task_prompt_plain) instead of AIC names
   --target-refs DIR      add observation.images.target_ref: the reference image of the episode's target
@@ -57,12 +67,38 @@ def twist_actions(state, t):
     return np.vstack([act, np.zeros((1, 6))]).astype(np.float32)
 
 
-def features(h, w, with_ref=False):
+def commanded_poses(state, t, cmd):
+    """TCP poses CheatCode commanded at each frame time (position interpolated, latest orientation).
+    Frames before the first command keep the reached pose; after the last one the last command holds."""
+    pose = state[:, 0:7].astype(np.float64).copy()
+    ct = cmd["t"]
+    inside = t >= ct[0]
+    tt = np.minimum(t[inside], ct[-1])
+    pose[inside, 0:3] = np.stack([np.interp(tt, ct, cmd["position"][:, k]) for k in range(3)], axis=1)
+    pose[inside, 3:7] = cmd["quaternion"][np.searchsorted(ct, tt, side="right") - 1]
+    return pose
+
+
+def rest_frame(state, tol=5e-4):
+    """Index of the frame after which the TCP never moves more than tol (m) between frames."""
+    moving = np.flatnonzero(np.linalg.norm(np.diff(state[:, 0:3], axis=0), axis=1) > tol)
+    return int(moving[-1]) + 1 if len(moving) else len(state) - 1
+
+
+def latest_wrench(t, wrench):
+    i = np.clip(np.searchsorted(wrench["t"], t, side="right") - 1, 0, len(wrench["t"]) - 1)
+    return np.concatenate([wrench["force"][i], wrench["torque"][i]], axis=1).astype(np.float32)
+
+
+def features(h, w, with_ref=False, with_wrench=False, with_pose=False):
     cams = list(contract.CAMERAS) + ([contract.TARGET_REF] if with_ref else [])
     f = {f"observation.images.{c}": {"dtype": "video", "shape": (h, w, 3),
                                      "names": ["height", "width", "channels"]} for c in cams}
-    f["observation.state"] = {"dtype": "float32", "shape": (contract.STATE_DIM,), "names": contract.STATE_NAMES}
+    names = contract.STATE_NAMES_WRENCH if with_wrench else list(contract.STATE_NAMES)
+    f["observation.state"] = {"dtype": "float32", "shape": (len(names),), "names": names}
     f["action"] = {"dtype": "float32", "shape": (contract.ACTION_DIM,), "names": contract.ACTION_NAMES}
+    if with_pose:
+        f["action.pose"] = {"dtype": "float32", "shape": (7,), "names": contract.POSE_NAMES}
     return f
 
 
@@ -76,6 +112,9 @@ def main():
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--prompt-style", choices=sorted(contract.PROMPTS), default="raw")
     ap.add_argument("--target-refs", type=Path, help="reference image library (build_target_refs.py)")
+    ap.add_argument("--trim-rest", type=float, help="seconds to keep after the TCP comes to rest")
+    ap.add_argument("--action-source", choices=["measured", "commanded"], default="measured")
+    ap.add_argument("--wrench", action="store_true", help="append wrist force/torque to the state")
     args = ap.parse_args()
     make_prompt = contract.PROMPTS[args.prompt_style]
     held_out, ref_imgs = set(), {}
@@ -97,6 +136,10 @@ def main():
         if not (meta["inserted"] or args.include_failed):
             print(f"skip (no insertion): {d.name}")
             continue
+        needed = (["commands.npz"] if args.action_source == "commanded" else []) + (["wrench.npz"] if args.wrench else [])
+        if missing := [f for f in needed if not (d / f).exists()]:
+            print(f"skip (no {', '.join(missing)}): {d.name}")
+            continue
         episodes.append((d, meta))
     if not episodes:
         sys.exit(f"no usable episodes in {args.raw}")
@@ -107,15 +150,28 @@ def main():
         shutil.rmtree(args.out)
     h, w = np.asarray(Image.open(next(episodes[0][0].glob("left_camera/*.jpg")))).shape[:2]
     fps = int(round(episodes[0][1]["fps"]))
-    ds = LeRobotDataset.create(repo_id=args.repo_id, fps=fps, features=features(h, w, bool(ref_imgs)), root=args.out,
+    ds = LeRobotDataset.create(repo_id=args.repo_id, fps=fps, features=features(h, w, bool(ref_imgs), args.wrench,
+                                                                     args.action_source == "commanded"), root=args.out,
                                robot_type="aic_ur5e", use_videos=True,
                                image_writer_threads=3)  # keep CPU light
 
-    total = 0
+    total = raw_total = 0
     for d, meta in episodes:
         data = np.load(d / "data.npz")
         state, t = data["state"], data["sim_t"]
-        actions = twist_actions(state, t)
+        raw_total += len(state)
+        pose = None
+        if args.action_source == "commanded":
+            pose = commanded_poses(state, t, np.load(d / "commands.npz")).astype(np.float32)
+            actions = twist_actions(pose, t)
+        else:
+            actions = twist_actions(state, t)
+        if args.wrench:
+            state = np.concatenate([state, latest_wrench(t, np.load(d / "wrench.npz"))], axis=1)
+        if args.trim_rest is not None and meta["inserted"]:
+            end = min(len(state), rest_frame(state) + 1 + int(round(args.trim_rest * meta["fps"])))
+            state, t, actions = state[:end], t[:end], actions[:end]
+            pose = pose[:end] if pose is not None else None
         prompt = make_prompt(meta["task"])
         ref = ref_imgs.get(meta["task"]["port_name"]) if ref_imgs else None
         for i in range(len(state)):
@@ -123,6 +179,8 @@ def main():
                      for c in contract.CAMERAS}
             frame["observation.state"] = state[i]
             frame["action"] = actions[i]
+            if pose is not None:
+                frame["action.pose"] = pose[i]
             if ref_imgs:
                 frame[f"observation.images.{contract.TARGET_REF}"] = ref
             frame["task"] = prompt
@@ -132,8 +190,9 @@ def main():
         lin = np.linalg.norm(actions[:, :3], axis=1)
         print(f"{d.name}: {len(state)} frames, '{prompt}', max speed {lin.max():.3f} m/s")
     ds.finalize()
-    print(f"\n{len(episodes)} episodes, {total} frames, {fps} fps, prompts={args.prompt_style}, "
-          f"target_ref={'yes' if ref_imgs else 'no'} -> {args.out}")
+    print(f"\n{len(episodes)} episodes, {total} frames (of {raw_total} recorded), {fps} fps, "
+          f"prompts={args.prompt_style}, target_ref={'yes' if ref_imgs else 'no'}, actions={args.action_source}, "
+          f"wrench={'yes' if args.wrench else 'no'}, trim_rest={args.trim_rest} -> {args.out}")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 Requests (dicts, see transport.py):
   {"cmd": "ping"}                                   -> {"ok": True, "info": {...}}
   {"cmd": "reset"}                                  -> {"ok": True}
-  {"cmd": "act", "obs": {"state", "images"}, "task": str, "noise": optional (chunk, max_action_dim)}
+  {"cmd": "act", "obs": {"state", "wrench", "images"}, "task": str, "noise": optional (chunk, max_action_dim)}
                                                     -> {"actions": (chunk, 6) float32, "latency_s": float}
 
 `noise` is the hook for DSRL: a learned policy chooses the initial noise of SmolVLA's flow-matching
@@ -33,6 +33,17 @@ import torch
 from aic_smolvla import contract, transport
 
 
+def _state_dim(checkpoint: str) -> int | None:
+    """observation.state size the checkpoint's normalizer was fitted on (None if it has no stats)."""
+    from safetensors.torch import load_file
+
+    for f in sorted(Path(checkpoint).glob("policy_preprocessor_step_*_normalizer_processor.safetensors")):
+        stats = load_file(str(f))
+        if "observation.state.mean" in stats:
+            return int(stats["observation.state.mean"].shape[0])
+    return None
+
+
 def _aic_features():
     from lerobot.configs.types import FeatureType, PolicyFeature
 
@@ -57,7 +68,7 @@ class SmolVLAServer:
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         cfg = PreTrainedConfig.from_pretrained(checkpoint)
         cfg.device = str(self.device)
-        if num_steps:
+        if num_steps and cfg.type == "smolvla":
             cfg.num_steps = num_steps
 
         is_aic = all(f"observation.images.{c}" in cfg.input_features for c in contract.CAMERAS)
@@ -71,8 +82,18 @@ class SmolVLAServer:
             cfg.input_features, cfg.output_features = _aic_features()
             self.preprocessor, self.postprocessor = make_pre_post_processors(cfg, dataset_stats=None)
         self.base_model = not is_aic
+        # Models trained with convert_demos.py --wrench take the wrist force/torque appended to the state.
+        # lerobot-train keeps the base config's state shape (26), so read the trained size from the stats.
+        self.uses_wrench = is_aic and _state_dim(checkpoint) == len(contract.STATE_NAMES_WRENCH)
 
-        self.policy = SmolVLAPolicy.from_pretrained(checkpoint, config=cfg).to(self.device).eval()
+        # ACT baselines (scripts/train_act.sh) are served the same way; they ignore the task text and noise.
+        self.policy_type = cfg.type
+        policy_cls = SmolVLAPolicy
+        if cfg.type == "act":
+            from lerobot.policies.act.modeling_act import ACTPolicy
+
+            policy_cls = ACTPolicy
+        self.policy = policy_cls.from_pretrained(checkpoint, config=cfg).to(self.device).eval()
         self.cfg = cfg
 
         ctx_file = Path(checkpoint) / "aic_context.json"
@@ -91,11 +112,13 @@ class SmolVLAServer:
             "device": str(self.device),
             "base_model": self.base_model,
             "chunk_size": cfg.chunk_size,
-            "max_action_dim": cfg.max_action_dim,
-            "num_steps": cfg.num_steps,
+            "max_action_dim": getattr(cfg, "max_action_dim", None),
+            "policy_type": cfg.type,
+            "num_steps": getattr(cfg, "num_steps", None),
             "action_dim": contract.ACTION_DIM,
             "prompt_style": self.prompt_style,
             "target_ref": sorted(self.refs) if self.uses_ref else None,
+            "wrench": self.uses_wrench,
         }
 
     def reset(self):
@@ -118,13 +141,21 @@ class SmolVLAServer:
             if port not in self.refs:
                 raise KeyError(f"no target_ref image for port {port!r}; have {sorted(self.refs)}")
             raw[f"observation.images.{contract.TARGET_REF}"] = self.refs[port]
-        raw["observation.state"] = np.asarray(obs["state"], dtype=np.float32)
+        state = np.asarray(obs["state"], dtype=np.float32)
+        if self.uses_wrench:
+            state = np.concatenate([state, np.asarray(obs["wrench"], dtype=np.float32)])
+        raw["observation.state"] = state
         batch = prepare_observation_for_inference(raw, self.device, task=task, robot_type="aic_ur5e")
         batch = self.preprocessor(batch)
         if noise is not None:
             noise = torch.as_tensor(np.asarray(noise), dtype=torch.float32, device=self.device)
             noise = noise.reshape(1, self.cfg.chunk_size, self.cfg.max_action_dim)
-        chunk = self.policy.predict_action_chunk(batch, noise=noise)  # (1, chunk, action_dim)
+        if self.policy_type == "act":
+            if noise is not None:
+                raise ValueError("ACT has no noise input")
+            chunk = self.policy.predict_action_chunk(batch)
+        else:
+            chunk = self.policy.predict_action_chunk(batch, noise=noise)  # (1, chunk, action_dim)
         chunk = self.postprocessor(chunk)
         return chunk[0].float().cpu().numpy()
 
