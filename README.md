@@ -102,8 +102,8 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 
 ## Datasets and models (Hugging Face)
 
-All private under `muhammad-ibraheem`, grouped in the collection
-[EEE 598 AIC cable insertion](https://huggingface.co/collections/muhammad-ibraheem/eee-598-aic-cable-insertion-6ae27ff563a029e6bf17de66).
+Public under `muhammad-ibraheem`, grouped in the collection
+[EEE 598 AIC cable insertion](https://huggingface.co/collections/muhammad-ibraheem/eee-598-aic-cable-insertion).
 Datasets are LeRobot v3.0 (load with `LeRobotDataset("muhammad-ibraheem/<name>")`); models are the final
 checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --local-dir <dir>`, then serve with
 `scripts/run_smolvla_server.sh <dir>`; the server reads local files next to the weights). Scores are on the
