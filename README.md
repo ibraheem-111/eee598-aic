@@ -115,6 +115,7 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [aic-cheatcode-v1-context](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v1-context) | v1 with plain-words prompts and a target-port reference image |
 | [aic-cheatcode-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v2) | 256 demos, 41k frames: frozen tail trimmed, commanded actions (+ `action.pose`), force/torque (32-dim state) |
 | [aic-cheatcode-v3](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v3) | v2 fixes on 427 demos, 69k frames |
+| [aic-cheatcode-v4](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4) | v2 fixes on 585 demos, 95k frames |
 
 | Model | Trained on | Steps | Score | Inserted |
 |---|---|---|---|---|
@@ -148,4 +149,6 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | 2026-10-28 | SmolVLA on v3 (427 demos, 69k frames, 40k steps): 272/1200 with the **first partial insertion** (held-out trial 4, SC port, 1 cm from seated, 57 pts; `docs/media/ft_v3_trial4_partial_insertion.mp4`). Two trials ended within 5 s at -11 each after a 30+ cm jump faster than the policy's 6 cm/s cap |
 | 2026-10-28 | SmolVLA v3 with the 30 N force stop off: 222/1200; trial 4 still stops 1 cm short, extra pushing costs force penalties, so the stop stays |
 | 2026-10-28 | ACT baseline from scratch on v3 (52M params, 50k steps, 75 min; `scripts/train_act.sh`, served by the same server): 268/1200, 0 inserted, median 8.5 cm, two trials at 2 cm |
-| next | X-VLA on v3; port localization input |
+| 2026-10-28 | v3 on 12 new boards (seed 101): 223, 0 inserted; on 12 of its own training boards: 235 (227 with third-person cameras), 0 inserted, so not a generalization gap. Third-person videos: `docs/media/2026-10-28_v3_*` |
+| 2026-10-28 | 225 more demos (seeds 22–30) → 731 recorded, 585 inserted → `aic_cheatcode_v4` (95k frames). Datasets and checkpoints public on Hugging Face (see above) |
+| next | Paused. Candidates: plain-words prompt with the VLM unfrozen; port detection + triangulation from the three wrist cameras; X-VLA on v4 |
