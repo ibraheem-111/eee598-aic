@@ -48,5 +48,5 @@ for ((k = 0; k < ROUNDS; k++)); do
   cleanup; trap - EXIT
   [ "${KEEP_BAGS:-0}" = 1 ] || rm -rf "$OUT"/results/bag_trial_*
   echo "    $(grep -E '^total' "$OUT/scoring.yaml" 2>/dev/null || echo "no score (exit $status)") | episodes so far: $(wc -l < "$RUN/agent/episodes.jsonl" 2>/dev/null || echo 0)"
-  [ $status -ne 0 ] && { echo "round $k timed out; stopping"; exit 1; }
+  if [ $status -ne 0 ]; then echo "round $k timed out; stopping"; exit 1; fi
 done
