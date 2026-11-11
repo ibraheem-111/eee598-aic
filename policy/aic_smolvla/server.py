@@ -82,6 +82,7 @@ class SmolVLAServer:
             cfg.input_features, cfg.output_features = _aic_features()
             self.preprocessor, self.postprocessor = make_pre_post_processors(cfg, dataset_stats=None)
         self.base_model = not is_aic
+        self.rl = None
         # Models trained with convert_demos.py --wrench take the wrist force/torque appended to the state.
         # lerobot-train keeps the base config's state shape (26), so read the trained size from the stats.
         self.uses_wrench = is_aic and _state_dim(checkpoint) == len(contract.STATE_NAMES_WRENCH)
@@ -175,7 +176,60 @@ class SmolVLAServer:
                 torch.cuda.synchronize()
             return {"actions": actions.astype(np.float32), "latency_s": time.perf_counter() - t0,
                     "prompt": prompt}
+        if cmd in ("rl_act", "rl_end"):
+            if self.rl is None:
+                raise RuntimeError("server started without --rl-dir")
+            return self.rl_act(msg) if cmd == "rl_act" else self.rl_end(msg)
         return {"error": f"unknown cmd {cmd!r}"}
+
+    # -- residual RL (rl_agent.ResidualSAC); one RL step = one action chunk ---------------------------
+    def enable_rl(self, rl_dir: str, scale: float):
+        from aic_smolvla.rl_agent import ResidualSAC
+
+        obs_dim = len(contract.STATE_NAMES_WRENCH) + contract.ACTION_DIM + 3
+        self.rl = ResidualSAC(rl_dir, obs_dim, act_dim=3, scale=scale, device=str(self.device))
+        self._pending, self._rl_steps = None, 0
+        self.info["rl"] = {"dir": rl_dir, "scale": scale, "episodes": self.rl.episodes, "buffer": self.rl.size}
+
+    def rl_act(self, msg: dict) -> dict:
+        """Base chunk + residual. msg: obs, task, task_fields, priv, reward (for the previous step),
+        t_frac, exec_steps, deterministic, zero_residual (base policy only, e.g. for coverage tests)."""
+        from aic_smolvla.rl_agent import actor_features
+
+        t0 = time.perf_counter()
+        fields = msg.get("task_fields") or {}
+        chunk = self.act(msg["obs"], self.prompt_for(msg.get("task", ""), fields), None, fields)
+        n = int(msg.get("exec_steps", 10))
+        state = np.concatenate([np.asarray(msg["obs"]["state"], np.float32),
+                                np.asarray(msg["obs"]["wrench"], np.float32)])
+        o = actor_features(state, chunk[:n].mean(0), fields.get("port_type", ""), float(msg.get("t_frac", 0.0)))
+        priv = np.asarray(msg["priv"], np.float32)
+        if self._pending is not None and not msg.get("deterministic"):
+            po, pp, pa = self._pending
+            self.rl.add(po, pp, pa, float(msg["reward"]), o, priv, False)
+        a = (np.zeros(self.rl.act_dim, np.float32) if msg.get("zero_residual")
+             else self.rl.act(o, deterministic=bool(msg.get("deterministic"))))
+        self._pending = (o, priv, a)
+        self._rl_steps += 1
+        residual = a * self.rl.scale
+        chunk = chunk.copy()
+        chunk[:, :3] += residual
+        return {"actions": chunk.astype(np.float32), "residual": residual.astype(np.float32),
+                "latency_s": time.perf_counter() - t0}
+
+    def rl_end(self, msg: dict) -> dict:
+        """Close the episode: msg: reward (last step), priv (final), terminal (inserted or safety stop;
+        a time-out is a truncation and bootstraps), summary (logged). Trains, saves, returns the log entry."""
+        if self._pending is not None and not msg.get("deterministic"):
+            po, pp, pa = self._pending
+            self.rl.add(po, pp, pa, float(msg["reward"]), po, np.asarray(msg["priv"], np.float32),
+                        bool(msg.get("terminal")))
+        steps, self._pending, self._rl_steps = self._rl_steps, None, 0
+        if msg.get("deterministic"):
+            return {"ok": True}
+        entry = self.rl.end_episode(steps, msg.get("summary", {}))
+        print(f"RL episode {entry}", flush=True)
+        return {"ok": True, "entry": entry}
 
 
 def serve(server: SmolVLAServer, address=transport.DEFAULT_ADDRESS):
@@ -208,8 +262,12 @@ def main():
     ap.add_argument("--port", type=int, default=transport.DEFAULT_ADDRESS[1])
     ap.add_argument("--prompt-style", choices=sorted(contract.PROMPTS), help="override aic_context.json")
     ap.add_argument("--target-refs", help="reference image library (override aic_context.json)")
+    ap.add_argument("--rl-dir", help="enable residual RL (rl_act/rl_end); agent and buffer live here")
+    ap.add_argument("--rl-scale", type=float, default=0.02, help="max residual linear speed, m/s")
     args = ap.parse_args()
     server = SmolVLAServer(args.checkpoint, args.device, args.num_steps, args.prompt_style, args.target_refs)
+    if args.rl_dir:
+        server.enable_rl(args.rl_dir, args.rl_scale)
     serve(server, (transport.DEFAULT_ADDRESS[0], args.port))
 
 
