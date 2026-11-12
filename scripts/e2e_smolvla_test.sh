@@ -21,9 +21,10 @@ trap cleanup EXIT
 
 echo "server..."; setsid "$ROOT/scripts/run_smolvla_server.sh" "${1:-lerobot/smolvla_base}" >"$OUT/server.log" 2>&1 & pids+=($!)
 timeout 180 bash -c "until grep -q 'server ready' '$OUT/server.log'; do sleep 2; done" || { echo "server failed"; tail "$OUT/server.log"; exit 1; }
-echo "simulator..."; setsid "$ROOT/scripts/run_sim.sh" "${SIM_ARGS[@]}" >"$OUT/sim.log" 2>&1 & pids+=($!)
-sleep 15
+# Policy first: the engine gives up on trial 1 if the aic_model node isn't up when it checks.
 echo "policy..."; setsid "$ROOT/scripts/run_smolvla_policy.sh" >"$OUT/policy.log" 2>&1 & pids+=($!)
+timeout 120 bash -c "until grep -q 'Using policy' '$OUT/policy.log'; do sleep 2; done" || echo "policy slow to start"
+echo "simulator..."; setsid "$ROOT/scripts/run_sim.sh" "${SIM_ARGS[@]}" >"$OUT/sim.log" 2>&1 & pids+=($!)
 
 # The engine writes scoring.yaml when all trials finish.
 timeout "${E2E_TIMEOUT:-1200}" bash -c "until [ -f '$AIC_RESULTS_DIR/scoring.yaml' ]; do sleep 5; done"

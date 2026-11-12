@@ -36,13 +36,15 @@ if [ "$POLICY" = smolvla ]; then
 else
   CLASS=aic_smolvla.RecordCheatCode; GT=true
 fi
+# Policy first: the engine gives up on trial 1 if the aic_model node isn't up when it checks.
+setsid "$ROOT/scripts/run_policy.sh" "$CLASS" >"$OUT/policy.log" 2>&1 & pids+=($!)
+timeout 120 bash -c "until grep -q 'Using policy' '$OUT/policy.log'; do sleep 2; done" || echo "policy slow to start"
 setsid "$ROOT/scripts/run_sim.sh" ground_truth:=$GT gazebo_gui:=false launch_rviz:=false \
   aic_engine_config_file:="$CONFIG" >"$OUT/sim.log" 2>&1 & pids+=($!)
 sleep 15
 setsid "$ROOT/scripts/observer_cameras.py" >"$OUT/observer_cameras.log" 2>&1 & pids+=($!)
 (cd "$ROOT/external/aic" && PYTHONPATH="$ROOT/policy" exec setsid pixi run python -m aic_smolvla.observer_recorder \
   "$OUT/observer" overview side) >"$OUT/observer_recorder.log" 2>&1 & pids+=($!)
-setsid "$ROOT/scripts/run_policy.sh" "$CLASS" >"$OUT/policy.log" 2>&1 & pids+=($!)
 
 timeout "$(( N * 150 + 300 ))" bash -c "until [ -f '$OUT/results/scoring.yaml' ]; do sleep 10; done"
 status=$?

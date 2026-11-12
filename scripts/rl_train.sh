@@ -10,7 +10,8 @@
 # Per episode: outputs/rl/<run_name>/agent/episodes.jsonl (return, distances, insertion, losses).
 # AIC_RL_EVAL=1 runs the deterministic actor without training; AIC_RL_ZERO_RESIDUAL=1 runs the base policy
 # alone but still logs true plug-to-port distances (coverage tests). RL_CONFIG=<config.yaml> runs that config
-# instead of random boards (N must match its trial count). Hold the GPU lock:
+# instead of random boards (N must match its trial count). RL_PORT_DETECTOR=<dir> gives the actor the camera
+# port estimate (aic_smolvla.port_estimator). Hold the GPU lock:
 #   flock /tmp/claude-1000/gpu.lock scripts/rl_train.sh ...
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,12 +37,13 @@ for ((k = 0; k < ROUNDS; k++)); do
     docker stop -t 10 aic_eval >/dev/null 2>&1
   }
   trap cleanup EXIT
-  setsid "$ROOT/scripts/run_smolvla_server.sh" "$CKPT" --rl-dir "$RUN/agent" >"$OUT/server.log" 2>&1 & pids+=($!)
+  setsid "$ROOT/scripts/run_smolvla_server.sh" "$CKPT" --rl-dir "$RUN/agent" ${RL_PORT_DETECTOR:+--rl-port-detector "$RL_PORT_DETECTOR"} >"$OUT/server.log" 2>&1 & pids+=($!)
   timeout 180 bash -c "until grep -q 'server ready' '$OUT/server.log'; do sleep 2; done" || { echo "server failed"; tail "$OUT/server.log"; exit 1; }
+  # Policy first: the engine gives up on trial 1 if the aic_model node isn't up when it checks.
+  setsid "$ROOT/scripts/run_policy.sh" aic_smolvla.RunResidualRL >"$OUT/policy.log" 2>&1 & pids+=($!)
+  timeout 120 bash -c "until grep -q 'connected to server' '$OUT/policy.log'; do sleep 2; done" || echo "policy slow to start"
   setsid "$ROOT/scripts/run_sim.sh" gazebo_gui:=false launch_rviz:=false ground_truth:=true \
     aic_engine_config_file:="$(realpath "$CONFIG")" >"$OUT/sim.log" 2>&1 & pids+=($!)
-  sleep 15
-  setsid "$ROOT/scripts/run_policy.sh" aic_smolvla.RunResidualRL >"$OUT/policy.log" 2>&1 & pids+=($!)
   timeout "$(( N * 150 + 300 ))" bash -c "until [ -f '$OUT/results/scoring.yaml' ]; do sleep 10; done"
   status=$?
   cp "$OUT/results/scoring.yaml" "$OUT/" 2>/dev/null

@@ -139,6 +139,8 @@ class SmolVLAServer:
     def reset(self):
         if self.port_estimator is not None:
             self.port_estimator.reset()
+        if getattr(self, "rl_port", None) is not None:
+            self.rl_port.reset()
         self.policy.reset()
         self.preprocessor.reset()
         self.postprocessor.reset()
@@ -206,13 +208,21 @@ class SmolVLAServer:
         return {"error": f"unknown cmd {cmd!r}"}
 
     # -- residual RL (rl_agent.ResidualSAC); one RL step = one action chunk ---------------------------
-    def enable_rl(self, rl_dir: str, scale: float):
+    def enable_rl(self, rl_dir: str, scale: float, port_detector: str | None = None):
         from aic_smolvla.rl_agent import ResidualSAC
 
-        obs_dim = len(contract.STATE_NAMES_WRENCH) + contract.ACTION_DIM + 3
+        # Optional camera port estimate for the actor (relative position + valid flag); the actor learns
+        # how far to trust it, the critic still has the true positions.
+        self.rl_port = None
+        if port_detector:
+            from aic_smolvla.port_estimator import PortEstimator
+
+            self.rl_port = PortEstimator(port_detector, device=str(self.device))
+        obs_dim = len(contract.STATE_NAMES_WRENCH) + contract.ACTION_DIM + 3 + (4 if self.rl_port else 0)
         self.rl = ResidualSAC(rl_dir, obs_dim, act_dim=3, scale=scale, device=str(self.device))
         self._pending, self._rl_steps = None, 0
-        self.info["rl"] = {"dir": rl_dir, "scale": scale, "episodes": self.rl.episodes, "buffer": self.rl.size}
+        self.info["rl"] = {"dir": rl_dir, "scale": scale, "episodes": self.rl.episodes, "buffer": self.rl.size,
+                           "port_estimate": bool(self.rl_port)}
 
     def rl_act(self, msg: dict) -> dict:
         """Base chunk + residual. msg: obs, task, task_fields, priv, reward (for the previous step),
@@ -226,6 +236,10 @@ class SmolVLAServer:
         state = np.concatenate([np.asarray(msg["obs"]["state"], np.float32),
                                 np.asarray(msg["obs"]["wrench"], np.float32)])
         o = actor_features(state, chunk[:n].mean(0), fields.get("port_type", ""), float(msg.get("t_frac", 0.0)))
+        if self.rl_port is not None:
+            rel, ok = self.rl_port.update([msg["obs"]["images"][c] for c in contract.CAMERAS],
+                                          fields.get("target_module_name"), fields.get("port_name"), state[:7])
+            o = np.concatenate([o, rel, [ok]]).astype(np.float32)
         priv = np.asarray(msg["priv"], np.float32)
         if self._pending is not None and not msg.get("deterministic"):
             po, pp, pa = self._pending
@@ -287,10 +301,11 @@ def main():
     ap.add_argument("--target-refs", help="reference image library (override aic_context.json)")
     ap.add_argument("--rl-dir", help="enable residual RL (rl_act/rl_end); agent and buffer live here")
     ap.add_argument("--rl-scale", type=float, default=0.02, help="max residual linear speed, m/s")
+    ap.add_argument("--rl-port-detector", help="give the RL actor the camera port estimate (detector dir)")
     args = ap.parse_args()
     server = SmolVLAServer(args.checkpoint, args.device, args.num_steps, args.prompt_style, args.target_refs)
     if args.rl_dir:
-        server.enable_rl(args.rl_dir, args.rl_scale)
+        server.enable_rl(args.rl_dir, args.rl_scale, args.rl_port_detector)
     serve(server, (transport.DEFAULT_ADDRESS[0], args.port))
 
 
