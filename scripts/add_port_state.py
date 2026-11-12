@@ -8,7 +8,7 @@ velocity (3), wrist force (3) and torque (3), then the port estimate relative to
 and a flag for whether an estimate exists yet (1). The estimate is computed exactly as the server computes it
 live (aic_smolvla.port_estimator): the detector runs on each frame's three wrist images in recording order
 and the running median is causal. Videos are symlinked; SRC must be built by convert_demos.py from
-data/demos/raw (episodes are matched to their raw folders by their first state).
+data/demos/raw (episode i is the i-th qualifying raw folder, and every episode's state sequence is checked against it).
 """
 
 import argparse
@@ -30,12 +30,17 @@ from aic_smolvla.port_estimator import PortEstimator  # noqa: E402
 KEEP = [*contract.STATE_NAMES[:10], *contract.WRENCH_NAMES]  # pose, linear velocity, force/torque (16)
 
 
-def raw_index(raw):
-    """First recorded state (26) -> raw episode folder, for inserted CheatCode demos."""
-    out = {}
-    for d in sorted(raw.glob("*cheatcode*/")):
-        if (d / "data.npz").exists() and json.loads((d / "meta.json").read_text())["inserted"]:
-            out[np.round(np.load(d / "data.npz")["state"][0], 5).tobytes()] = d
+def raw_episodes(raw):
+    """Raw folders in the order convert_demos.py (--action-source commanded --wrench) made episodes: sorted,
+    CheatCode, >= 10 frames, inserted, with commands.npz and wrench.npz. Episode i is the i-th of these."""
+    out = []
+    for d in sorted(raw.glob("*/")):
+        if not (d / "meta.json").exists():
+            continue
+        meta = json.loads((d / "meta.json").read_text())
+        if (meta["policy"] == "cheatcode" and meta["frames"] >= 10 and meta["inserted"]
+                and (d / "commands.npz").exists() and (d / "wrench.npz").exists()):
+            out.append(d)
     return out
 
 
@@ -49,7 +54,7 @@ def main():
     info = json.loads((args.src / "meta/info.json").read_text())
     names = info["features"]["observation.state"]["names"]
     keep = [names.index(n) for n in KEEP]
-    lookup = raw_index(args.raw)
+    raw_eps = raw_episodes(args.raw)
     est = PortEstimator(args.detector)
     pool = ThreadPoolExecutor(3)  # JPEG decoding; keep the CPU light
 
@@ -59,10 +64,11 @@ def main():
     valid_frac, n_eps = [], 0
     for ep, g in frames.groupby("episode_index", sort=True):
         g = g.sort_values("frame_index")
-        s0 = np.asarray(g["observation.state"].iloc[0], np.float32)[:26]
-        d = lookup.get(np.round(s0, 5).tobytes())
-        if d is None:
-            sys.exit(f"episode {ep}: no raw folder with a matching first state")
+        d = raw_eps[ep]
+        rec = np.load(d / "data.npz")["state"]
+        S = np.stack(g["observation.state"].values)[:, :26]
+        if len(S) > len(rec) or not np.allclose(S, rec[: len(S)], atol=1e-5):
+            sys.exit(f"episode {ep}: state sequence doesn't match {d.name}; refusing to guess")
         task = json.loads((d / "meta.json").read_text())["task"]
         est.reset()
         valid = 0
