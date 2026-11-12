@@ -37,41 +37,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from aic_smolvla import contract  # noqa: E402
 from check_port_visibility import chain, intrinsics, tf_graph  # noqa: E402
 
-MODULES = [f"nic_card_mount_{i}" for i in range(5)] + ["sc_port_0", "sc_port_1"]
-SLOTS = ["sfp_port_0", "sfp_port_1", "sc_port_base"]
-STRIDE = 4
+from aic_smolvla.port_estimator import MODULES, SLOTS, STRIDE, Detector, decode  # noqa: E402
+from aic_smolvla.port_estimator import triangulate as _triangulate  # noqa: E402
+from aic_smolvla.port_estimator import target_vector as _target_vector  # noqa: E402
 
 
 def target_vector(port_name):
     """'task_board/<module>/<slot>_link_entrance' -> one-hot module (7) + slot (3)."""
     _, module, leaf = port_name.split("/")
-    slot = leaf[: -len("_link_entrance")]
-    v = np.zeros(len(MODULES) + len(SLOTS), np.float32)
-    v[MODULES.index(module)] = 1
-    v[len(MODULES) + SLOTS.index(slot)] = 1
-    return v
-
-
-class Detector(nn.Module):
-    """ResNet-18 to stride 8, FiLM on the target, upsample to stride 4, one heatmap logit + 2D offset."""
-
-    def __init__(self, cond_dim):
-        super().__init__()
-        r = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
-        self.stem = nn.Sequential(r.conv1, r.bn1, r.relu, r.maxpool, r.layer1)  # stride 4, 64 ch
-        self.l2 = r.layer2  # stride 8, 128 ch
-        self.film = nn.Linear(cond_dim, 2 * 128)
-        self.head = nn.Sequential(nn.Conv2d(128 + 64, 128, 3, padding=1), nn.ReLU(),
-                                  nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 3, 1))
-
-    def forward(self, img, cond):
-        s4 = self.stem(img)
-        s8 = self.l2(s4)
-        g, b = self.film(cond).chunk(2, -1)
-        s8 = s8 * (1 + g[:, :, None, None]) + b[:, :, None, None]
-        x = torch.cat([F.interpolate(s8, size=s4.shape[-2:], mode="bilinear", align_corners=False), s4], 1)
-        out = self.head(x)
-        return out[:, 0], out[:, 1:]  # heatmap logits (B, H/4, W/4), offsets in cells (B, 2, H/4, W/4)
+    return _target_vector(module, leaf[: -len("_link_entrance")])
 
 
 def batch_seed(ep_name, raw):
@@ -133,18 +107,6 @@ def heatmap_loss(logit, off, uv, vis, sigma=1.5):
     return (l_pos + l_neg) / n + l_off
 
 
-@torch.no_grad()
-def decode(logit, off, thresh):
-    B, H, W = logit.shape
-    p = torch.sigmoid(logit).view(B, -1)
-    score, idx = p.max(1)
-    iy, ix = idx // W, idx % W
-    b = torch.arange(B, device=logit.device)
-    u = (ix.float() + off[b, 0, iy, ix]) * STRIDE
-    v = (iy.float() + off[b, 1, iy, ix]) * STRIDE
-    return torch.stack([u, v], 1), score, score > thresh
-
-
 def camera_rays(raw):
     """Camera optical frames in the TCP frame (fixed mounts) from any recording's static TF."""
     tf = json.loads(next(raw.glob("*cheatcode*/tf.json")).read_text())
@@ -153,16 +115,7 @@ def camera_rays(raw):
 
 
 def triangulate(dets, cams, f, cx, cy):
-    """Least-squares intersection of camera rays (TCP frame). dets: {cam index: (u, v)}."""
-    A, b = np.zeros((3, 3)), np.zeros(3)
-    for k, (u, v) in dets.items():
-        o = cams[k][:3, 3]
-        d = cams[k][:3, :3] @ np.array([(u - cx) / f, (v - cy) / f, 1.0])
-        d /= np.linalg.norm(d)
-        P = np.eye(3) - np.outer(d, d)
-        A += P
-        b += P @ o
-    return np.linalg.solve(A, b)
+    return _triangulate(dets, cams, f, cx, cy)[0]
 
 
 def main():
@@ -186,7 +139,7 @@ def main():
           f"{np.mean([r[5] for r in train]):.0%} / {np.mean([r[5] for r in val]):.0%})", flush=True)
     dl = torch.utils.data.DataLoader(Frames(train, args.raw), batch_size=args.batch, shuffle=True,
                                      num_workers=3, drop_last=True, persistent_workers=True)
-    model = Detector(len(MODULES) + len(SLOTS)).to(dev)
+    model = Detector(len(MODULES) + len(SLOTS), pretrained=True).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     total = args.epochs * len(dl)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=1e-3, total_steps=total, pct_start=0.05)

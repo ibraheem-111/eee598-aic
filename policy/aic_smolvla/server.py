@@ -88,6 +88,7 @@ class SmolVLAServer:
         # lerobot-train keeps the base config's state shape (26), so read the trained size from the stats.
         self.state_dim = _state_dim(checkpoint) if is_aic else len(contract.STATE_NAMES)
         self.uses_wrench = self.state_dim in (len(contract.STATE_NAMES_WRENCH), len(contract.STATE_NAMES_XVLA))
+        self.port_estimator = None
 
         # ACT baselines (scripts/train_act.sh) are served the same way; they ignore the task text and noise.
         self.policy_type = cfg.type
@@ -105,6 +106,11 @@ class SmolVLAServer:
 
         ctx_file = Path(checkpoint) / "aic_context.json"
         ctx = json.loads(ctx_file.read_text()) if ctx_file.exists() else {}
+        if self.state_dim == len(contract.STATE_NAMES_XVLA_PORT):  # camera-based port estimate in the state
+            from aic_smolvla.port_estimator import PortEstimator
+
+            det = Path(ctx.get("port_detector", Path(__file__).resolve().parents[2] / "outputs/port_detector"))
+            self.port_estimator = PortEstimator(det, device=str(self.device))
         self.prompt_style = prompt_style or ctx.get("prompt_style", "raw")
         self.uses_ref = f"observation.images.{contract.TARGET_REF}" in cfg.input_features
         self.refs = {}
@@ -127,9 +133,12 @@ class SmolVLAServer:
             "target_ref": sorted(self.refs) if self.uses_ref else None,
             "wrench": self.uses_wrench,
             "state_dim": self.state_dim,
+            "port_estimate": self.port_estimator is not None,
         }
 
     def reset(self):
+        if self.port_estimator is not None:
+            self.port_estimator.reset()
         self.policy.reset()
         self.preprocessor.reset()
         self.postprocessor.reset()
@@ -150,7 +159,12 @@ class SmolVLAServer:
                 raise KeyError(f"no target_ref image for port {port!r}; have {sorted(self.refs)}")
             raw[f"observation.images.{contract.TARGET_REF}"] = self.refs[port]
         state = np.asarray(obs["state"], dtype=np.float32)
-        if self.state_dim == len(contract.STATE_NAMES_XVLA):  # pose + velocities (13) + force/torque
+        if self.port_estimator is not None:  # pose + linear velocity, force/torque, port estimate, valid
+            f = fields or {}
+            rel, ok = self.port_estimator.update([obs["images"][c] for c in contract.CAMERAS],
+                                                 f.get("target_module_name"), f.get("port_name"), state[:7])
+            state = np.concatenate([state[:10], np.asarray(obs["wrench"], np.float32), rel, [ok]]).astype(np.float32)
+        elif self.state_dim == len(contract.STATE_NAMES_XVLA):  # pose + velocities (13) + force/torque
             state = state[:13]
         if self.uses_wrench:
             state = np.concatenate([state, np.asarray(obs["wrench"], dtype=np.float32)])
