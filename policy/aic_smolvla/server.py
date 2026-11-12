@@ -71,7 +71,8 @@ class SmolVLAServer:
         if num_steps and cfg.type == "smolvla":
             cfg.num_steps = num_steps
 
-        is_aic = all(f"observation.images.{c}" in cfg.input_features for c in contract.CAMERAS)
+        # X-VLA checkpoints rename our cameras to image/image2/image3 in their own preprocessor.
+        is_aic = cfg.type == "xvla" or all(f"observation.images.{c}" in cfg.input_features for c in contract.CAMERAS)
         if is_aic:
             # Fine-tuned on AIC data: use its own features and normalization processors.
             self.preprocessor, self.postprocessor = make_pre_post_processors(
@@ -85,7 +86,8 @@ class SmolVLAServer:
         self.rl = None
         # Models trained with convert_demos.py --wrench take the wrist force/torque appended to the state.
         # lerobot-train keeps the base config's state shape (26), so read the trained size from the stats.
-        self.uses_wrench = is_aic and _state_dim(checkpoint) == len(contract.STATE_NAMES_WRENCH)
+        self.state_dim = _state_dim(checkpoint) if is_aic else len(contract.STATE_NAMES)
+        self.uses_wrench = self.state_dim in (len(contract.STATE_NAMES_WRENCH), len(contract.STATE_NAMES_XVLA))
 
         # ACT baselines (scripts/train_act.sh) are served the same way; they ignore the task text and noise.
         self.policy_type = cfg.type
@@ -94,6 +96,10 @@ class SmolVLAServer:
             from lerobot.policies.act.modeling_act import ACTPolicy
 
             policy_cls = ACTPolicy
+        elif cfg.type == "xvla":
+            from lerobot.policies.xvla.modeling_xvla import XVLAPolicy
+
+            policy_cls = XVLAPolicy
         self.policy = policy_cls.from_pretrained(checkpoint, config=cfg).to(self.device).eval()
         self.cfg = cfg
 
@@ -120,6 +126,7 @@ class SmolVLAServer:
             "prompt_style": self.prompt_style,
             "target_ref": sorted(self.refs) if self.uses_ref else None,
             "wrench": self.uses_wrench,
+            "state_dim": self.state_dim,
         }
 
     def reset(self):
@@ -143,6 +150,8 @@ class SmolVLAServer:
                 raise KeyError(f"no target_ref image for port {port!r}; have {sorted(self.refs)}")
             raw[f"observation.images.{contract.TARGET_REF}"] = self.refs[port]
         state = np.asarray(obs["state"], dtype=np.float32)
+        if self.state_dim == len(contract.STATE_NAMES_XVLA):  # pose + velocities (13) + force/torque
+            state = state[:13]
         if self.uses_wrench:
             state = np.concatenate([state, np.asarray(obs["wrench"], dtype=np.float32)])
         raw["observation.state"] = state

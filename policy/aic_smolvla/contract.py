@@ -27,6 +27,8 @@ STATE_NAMES = (
 )
 WRENCH_NAMES = [f"wrist_wrench.force.{a}" for a in "xyz"] + [f"wrist_wrench.torque.{a}" for a in "xyz"]
 STATE_NAMES_WRENCH = list(STATE_NAMES) + WRENCH_NAMES  # 32: state plus wrist force/torque
+# X-VLA's proprio input holds 20 channels: pose, velocities and force/torque (scripts/select_state.py).
+STATE_NAMES_XVLA = list(STATE_NAMES[:13]) + WRENCH_NAMES
 POSE_NAMES = [f"pose.position.{a}" for a in "xyz"] + [f"pose.orientation.{a}" for a in "xyzw"]
 ACTION_NAMES = [f"linear.{a}" for a in "xyz"] + [f"angular.{a}" for a in "xyz"]
 STATE_DIM = len(STATE_NAMES)  # 26
