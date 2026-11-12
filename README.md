@@ -124,6 +124,8 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [smolvla-aic-v2](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v2) | v2 | 40k | 272 | 0 |
 | [smolvla-aic-v3](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v3) | v3 | 40k | 272 | 1 partial |
 | [act-aic-v3](https://huggingface.co/muhammad-ibraheem/act-aic-v3) | v3 | 50k | 268 | 0 |
+| [xvla-aic-v4](https://huggingface.co/muhammad-ibraheem/xvla-aic-v4) | v4 (19-dim state) | 60k | 327 | 1 partial (2 full on other sets) |
+| [aic-port-detector](https://huggingface.co/muhammad-ibraheem/aic-port-detector) | port labels from v4 demos | 6 epochs | 1.1 mm median 3D error | (perception only) |
 
 ## Progress log
 
@@ -153,4 +155,7 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | 2026-10-28 | 225 more demos (seeds 22–30) → 731 recorded, 585 inserted → `aic_cheatcode_v4` (95k frames). Datasets and checkpoints public on Hugging Face (see above) |
 | 2026-11-10 | Coverage test (`outputs/rl/coverage_v3`, true distances logged by `RunResidualRL` with the residual off): 8 runs per board differ by ~0.5 cm; median closest 5.4 cm, never under 2 cm, so noise steering (DSRL) has little to work with. The AIC engine fails its end-of-run scoring after ~70 trials in one session (corrupt bag), so long runs are split |
 | 2026-11-11 | Residual asymmetric SAC (`policy/aic_smolvla/rl_agent.py`, `scripts/rl_train.sh`), 280 episodes on random boards: return 3 → 10, force-over-20 N steps 5.8 → 1.7/episode, median closest 4.6 cm. Deterministic on held-out seed 100: 238 vs 272 for SmolVLA alone, 0 inserted (closer on 4 trials, lost the partial insertion). The actor has no port information, so it learns global habits only |
-| next | Port detection + triangulation from the three wrist cameras, as input to the RL actor and to a code-as-policy controller |
+| 2026-11-11 | Port visibility check (`scripts/check_port_visibility.py`): projected port lands on the target in all three cameras; visible in >=2 cameras from 30% of the approach. Labels for all 585 demos (`scripts/make_port_labels.py`) |
+| 2026-11-11 | Target-conditioned port detector (`scripts/train_port_detector.py`) on held-out boards: 76% recall, 0.56 px median error, triangulated 3D error 1.1 mm median (74% under 2 mm, 91% under 5 mm) |
+| 2026-11-11 | X-VLA (0.9B, full fine-tune incl. vision, `scripts/train_xvla.sh`) on v4: 327 / 364 / 361 on seed 100 / seed 101 / training boards (SmolVLA v3: 272 / 223 / 227). **First full insertions**: 2 full + 1 partial in 36 trials, all SFP (`docs/media/xvla_full_insertion_s101_trial8.mp4`) |
+| next | Feed the detector's port estimate to the policy (X-VLA input, RL actor, or scripted approach + force search) |
