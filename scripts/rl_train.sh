@@ -41,7 +41,7 @@ for ((k = 0; k < ROUNDS; k++)); do
   timeout 180 bash -c "until grep -q 'server ready' '$OUT/server.log'; do sleep 2; done" || { echo "server failed"; tail "$OUT/server.log"; exit 1; }
   # Policy first: the engine gives up on trial 1 if the aic_model node isn't up when it checks.
   setsid "$ROOT/scripts/run_policy.sh" aic_smolvla.RunResidualRL >"$OUT/policy.log" 2>&1 & pids+=($!)
-  timeout 120 bash -c "until grep -q 'connected to server' '$OUT/policy.log'; do sleep 2; done" || echo "policy slow to start"
+  timeout 120 bash -c "until grep -q 'Using policy' '$OUT/policy.log'; do sleep 2; done" || echo "policy slow to start"
   setsid "$ROOT/scripts/run_sim.sh" gazebo_gui:=false launch_rviz:=false ground_truth:=true \
     aic_engine_config_file:="$(realpath "$CONFIG")" >"$OUT/sim.log" 2>&1 & pids+=($!)
   timeout "$(( N * 150 + 300 ))" bash -c "until [ -f '$OUT/results/scoring.yaml' ]; do sleep 10; done"

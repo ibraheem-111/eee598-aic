@@ -176,7 +176,9 @@ class SmolVLAServer:
         if noise is not None:
             noise = torch.as_tensor(np.asarray(noise), dtype=torch.float32, device=self.device)
             noise = noise.reshape(1, self.cfg.chunk_size, self.cfg.max_action_dim)
-        if self.policy_type == "act":
+        if self.policy_type == "xvla":
+            chunk = self._xvla_chunk(batch, noise)
+        elif self.policy_type == "act":
             if noise is not None:
                 raise ValueError("ACT has no noise input")
             chunk = self.policy.predict_action_chunk(batch)
@@ -184,6 +186,27 @@ class SmolVLAServer:
             chunk = self.policy.predict_action_chunk(batch, noise=noise)  # (1, chunk, action_dim)
         chunk = self.postprocessor(chunk)
         return chunk[0].float().cpu().numpy()
+
+    def _xvla_chunk(self, batch, noise):
+        """X-VLA draws its flow-matching start noise inside generate_actions (LeRobot ignores the noise
+        argument), so for a given noise (DSRL), torch.randn returns it for that one call."""
+        if noise is None:
+            return self.policy.predict_action_chunk(batch)
+        import lerobot.policies.xvla.modeling_xvla as mx
+
+        real_randn = mx.torch.randn
+
+        def fixed(*shape, device=None, dtype=None, **kw):
+            shape = shape[0] if len(shape) == 1 and isinstance(shape[0], (tuple, list, torch.Size)) else shape
+            if tuple(shape) != tuple(noise.shape):
+                return real_randn(*shape, device=device, dtype=dtype, **kw)
+            return noise.to(device=device or noise.device, dtype=dtype or noise.dtype)
+
+        mx.torch.randn = fixed
+        try:
+            return self.policy.predict_action_chunk(batch)
+        finally:
+            mx.torch.randn = real_randn
 
     def handle(self, msg: dict) -> dict:
         cmd = msg.get("cmd")
