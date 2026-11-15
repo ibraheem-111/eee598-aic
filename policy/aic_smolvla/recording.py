@@ -3,7 +3,7 @@
 One folder per episode under the record root:
     <root>/<YYYYmmdd_HHMMSS>_<policy>_<port>/
         meta.json                    task, prompt, policy, frame count, insertion result
-        data.npz                     state (N, 26), sim_t (N,), tcp_velocity (N, 6)
+        data.npz                     state (N, 26), sim_t (N,), tcp_velocity (N, 6), wrench (N, 6)
         left_camera/000000.jpg ...   RGB frames, 288x256, JPEG q95 (also center_camera/, right_camera/)
         preview.mp4                  three cameras side by side, for viewing
 
@@ -36,7 +36,7 @@ class EpisodeRecorder:
         self.dir = Path(root).expanduser() / f"{time.strftime('%Y%m%d_%H%M%S')}_{policy_name}_{port}"
         for cam in contract.CAMERAS:
             (self.dir / cam).mkdir(parents=True, exist_ok=True)
-        self.states, self.sim_t, self.tcp_vel = [], [], []
+        self.states, self.sim_t, self.tcp_vel, self.wrench = [], [], [], []
         self.insertion_events = []
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -69,6 +69,7 @@ class EpisodeRecorder:
         self.states.append(contract.state_to_numpy(obs))
         v = obs.controller_state.tcp_velocity
         self.tcp_vel.append([v.linear.x, v.linear.y, v.linear.z, v.angular.x, v.angular.y, v.angular.z])
+        self.wrench.append(contract.wrench_to_numpy(obs))
         self.sim_t.append(stamp)
 
     def stop(self, result=None):
@@ -80,6 +81,7 @@ class EpisodeRecorder:
             state=np.asarray(self.states, dtype=np.float32).reshape(n, contract.STATE_DIM),
             sim_t=np.asarray(self.sim_t, dtype=np.float64),
             tcp_velocity=np.asarray(self.tcp_vel, dtype=np.float32).reshape(n, 6),
+            wrench=np.asarray(self.wrench, dtype=np.float32).reshape(n, 6),
         )
         t = self.task
         meta = {

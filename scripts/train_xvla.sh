@@ -27,7 +27,20 @@ lerobot-train \
   --policy.device=cuda --policy.push_to_hub=false --wandb.enable=false \
   --output_dir="$ROOT/outputs/train/$NAME" --job_name="$NAME"
 CKPT="$ROOT/outputs/train/$NAME/checkpoints/last/pretrained_model"
-if grep -q port_estimate "$DATA/meta/info.json"; then
-  printf '{\n  "port_detector": "%s"\n}\n' "$ROOT/outputs/port_detector" > "$CKPT/aic_context.json"
-fi
+# aic_context.json: the detector for port-estimate states; for Recap datasets (task text tagged
+# "Advantage: positive|negative") the suffix the server appends at test time.
+"$ROOT/external/lerobot/.venv/bin/python" - "$DATA" "$CKPT" "$ROOT/outputs/port_detector" <<'PY'
+import json, sys
+import pandas as pd
+from pathlib import Path
+data, ckpt, det = map(Path, sys.argv[1:])
+ctx = {}
+if "port_estimate" in (data / "meta/info.json").read_text():
+    ctx["port_detector"] = str(det)
+tasks = pd.read_parquet(data / "meta/tasks.parquet")
+if any("Advantage: positive" in str(x) for x in list(tasks.index) + tasks.astype(str).values.ravel().tolist()):
+    ctx["prompt_suffix"] = " Advantage: positive"
+if ctx:
+    (ckpt / "aic_context.json").write_text(json.dumps(ctx, indent=2))
+PY
 echo "checkpoint: $CKPT"

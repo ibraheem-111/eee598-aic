@@ -112,6 +112,7 @@ class SmolVLAServer:
             det = Path(ctx.get("port_detector", Path(__file__).resolve().parents[2] / "outputs/port_detector"))
             self.port_estimator = PortEstimator(det, device=str(self.device))
         self.prompt_style = prompt_style or ctx.get("prompt_style", "raw")
+        self.prompt_suffix = ctx.get("prompt_suffix", "")  # Recap: " Advantage: positive"
         self.uses_ref = f"observation.images.{contract.TARGET_REF}" in cfg.input_features
         self.refs = {}
         if self.uses_ref:
@@ -131,6 +132,7 @@ class SmolVLAServer:
             "action_dim": contract.ACTION_DIM,
             "prompt_style": self.prompt_style,
             "target_ref": sorted(self.refs) if self.uses_ref else None,
+            "prompt_suffix": self.prompt_suffix,
             "wrench": self.uses_wrench,
             "state_dim": self.state_dim,
             "port_estimate": self.port_estimator is not None,
@@ -148,8 +150,8 @@ class SmolVLAServer:
     @torch.no_grad()
     def prompt_for(self, task: str, fields: dict | None) -> str:
         if fields and self.prompt_style != "raw":
-            return contract.PROMPTS[self.prompt_style](fields)
-        return task or (contract.task_prompt(fields) if fields else "")
+            return contract.PROMPTS[self.prompt_style](fields) + self.prompt_suffix
+        return (task or (contract.task_prompt(fields) if fields else "")) + self.prompt_suffix
 
     def act(self, obs: dict, task: str, noise=None, fields: dict | None = None) -> np.ndarray:
         from lerobot.policies.utils import prepare_observation_for_inference
