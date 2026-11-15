@@ -13,6 +13,8 @@ Reward per step (shaped by potential: progress toward the port, so the optimum i
 Settings: the AIC_SMOLVLA_* limits of RunSmolVLA, plus
     AIC_RL_EVAL=1             deterministic actor, nothing stored or trained
     AIC_RL_ZERO_RESIDUAL=1    base policy only (implies AIC_RL_EVAL): logs true distances, e.g. coverage tests
+    AIC_RECORD_DIR            record each trial (cameras, state) plus rl_commands.npz (every twist sent, sim time)
+                              and rl_steps.json (per-chunk sim time, true distance, reward, privileged state)
     AIC_RL_FORCE_LIMIT (20), AIC_RL_FORCE_PENALTY (0.5), AIC_RL_INSERT_BONUS (50), AIC_RL_STOP_PENALTY (10)
 """
 
@@ -92,6 +94,8 @@ class RunResidualRL(RunSmolVLA):
         start_state = self._tcp_and_force(obs_msg)
         priv, d = self._wait_priv(task, start_state[0])
         d0, d_min, ret, reward, steps, stop_reason, force_steps = d, d, 0.0, 0.0, 0, None, 0
+        sim_now = lambda: self.time_now().nanoseconds * 1e-9
+        cmds, steps_log = [], []  # saved next to the recording (Recap data): commands sent, per-chunk rewards
         log = open(log_path, "w")
         log.write(json.dumps({"event": "start", "task": prompt, "d0": d0, "eval": self.eval_mode}) + "\n")
         try:
@@ -110,8 +114,9 @@ class RunResidualRL(RunSmolVLA):
                     stop_reason = latest is not None and self._guard(latest, start_state)
                     if stop_reason or self._inserted:
                         break
-                    move_robot(motion_update=self._twist_update(
-                        contract.clip_twist(action, self.max_lin, self.max_ang)))
+                    twist = contract.clip_twist(action, self.max_lin, self.max_ang)
+                    move_robot(motion_update=self._twist_update(twist))
+                    cmds.append((sim_now(), *np.asarray(twist, np.float64)[:6]))
                     if elapsed() >= run_for:
                         break
                     remaining = period - (elapsed() - tick)
@@ -129,6 +134,9 @@ class RunResidualRL(RunSmolVLA):
                 if stop_reason:
                     reward -= self.stop_penalty
                 d, d_min, ret = d_new, min(d_min, d_new), ret + reward
+                steps_log.append({"sim_t": sim_now(), "d": d, "reward": reward, "priv": priv.tolist(),
+                                  "tcp_pose": obs_msg and contract.state_to_numpy(obs_msg)[:7].tolist(),
+                                  "terminal": bool(self._inserted or stop_reason)})
                 log.write(json.dumps({"event": "step", "t": round(elapsed(), 2), "d": round(d, 4),
                                       "reward": round(reward, 3), "residual": np.round(reply["residual"], 4).tolist()}) + "\n")
                 send_feedback(f"rl step {steps} d={d * 100:.1f} cm")
@@ -146,6 +154,9 @@ class RunResidualRL(RunSmolVLA):
             log.close()
             self.get_logger().info(f"RunResidualRL done: {summary}")
             if self._recorder:
-                self._recorder.stop(summary)
+                folder, _ = self._recorder.stop(summary)
                 self._recorder = None
+                c = np.asarray(cmds, np.float64).reshape(-1, 7)
+                np.savez_compressed(folder / "rl_commands.npz", t=c[:, 0], twist=c[:, 1:])
+                (folder / "rl_steps.json").write_text(json.dumps({"summary": summary, "steps": steps_log}))
         return True
