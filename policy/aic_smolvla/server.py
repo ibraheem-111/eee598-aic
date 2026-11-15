@@ -231,7 +231,11 @@ class SmolVLAServer:
         return {"error": f"unknown cmd {cmd!r}"}
 
     # -- residual RL (rl_agent.ResidualSAC); one RL step = one action chunk ---------------------------
-    def enable_rl(self, rl_dir: str, scale: float, port_detector: str | None = None):
+    def enable_rl(self, rl_dir: str, scale: float, port_detector: str | None = None, mode: str = "residual",
+                  noise_bound: float = 1.5):
+        """mode 'residual': the actor adds a bounded linear twist to the base chunk (scale m/s). mode 'noise'
+        (DSRL, Wagenmaker et al. 2025): the actor chooses the base policy's flow-matching start noise, bounded to
+        +-noise_bound; the base policy's weights are untouched."""
         from aic_smolvla.rl_agent import ResidualSAC
 
         # Optional camera port estimate for the actor (relative position + valid flag); the actor learns
@@ -242,10 +246,18 @@ class SmolVLAServer:
 
             self.rl_port = PortEstimator(port_detector, device=str(self.device))
         obs_dim = len(contract.STATE_NAMES_WRENCH) + contract.ACTION_DIM + 3 + (4 if self.rl_port else 0)
-        self.rl = ResidualSAC(rl_dir, obs_dim, act_dim=3, scale=scale, device=str(self.device))
+        self.rl_mode = mode
+        if mode == "noise":
+            if self.policy_type not in ("xvla", "smolvla"):
+                raise ValueError("DSRL needs a flow-matching base policy (X-VLA or SmolVLA)")
+            act_dim = self.cfg.chunk_size * self.cfg.max_action_dim
+            self.rl = ResidualSAC(rl_dir, obs_dim, act_dim=act_dim, scale=noise_bound, device=str(self.device),
+                                  capacity=60_000, hidden=512, gaussian_warmup=True)
+        else:
+            self.rl = ResidualSAC(rl_dir, obs_dim, act_dim=3, scale=scale, device=str(self.device))
         self._pending, self._rl_steps = None, 0
-        self.info["rl"] = {"dir": rl_dir, "scale": scale, "episodes": self.rl.episodes, "buffer": self.rl.size,
-                           "port_estimate": bool(self.rl_port)}
+        self.info["rl"] = {"dir": rl_dir, "mode": mode, "scale": self.rl.scale, "act_dim": self.rl.act_dim,
+                           "episodes": self.rl.episodes, "buffer": self.rl.size, "port_estimate": bool(self.rl_port)}
 
     def rl_act(self, msg: dict) -> dict:
         """Base chunk + residual. msg: obs, task, task_fields, priv, reward (for the previous step),
@@ -254,11 +266,14 @@ class SmolVLAServer:
 
         t0 = time.perf_counter()
         fields = msg.get("task_fields") or {}
-        chunk = self.act(msg["obs"], self.prompt_for(msg.get("task", ""), fields), None, fields)
+        prompt = self.prompt_for(msg.get("task", ""), fields)
+        noise_mode = self.rl_mode == "noise"
+        chunk = None if noise_mode else self.act(msg["obs"], prompt, None, fields)
         n = int(msg.get("exec_steps", 10))
         state = np.concatenate([np.asarray(msg["obs"]["state"], np.float32),
                                 np.asarray(msg["obs"]["wrench"], np.float32)])
-        o = actor_features(state, chunk[:n].mean(0), fields.get("port_type", ""), float(msg.get("t_frac", 0.0)))
+        base_twist = np.zeros(contract.ACTION_DIM, np.float32) if noise_mode else chunk[:n].mean(0)
+        o = actor_features(state, base_twist, fields.get("port_type", ""), float(msg.get("t_frac", 0.0)))
         if self.rl_port is not None:
             rel, ok = self.rl_port.update([msg["obs"]["images"][c] for c in contract.CAMERAS],
                                           fields.get("target_module_name"), fields.get("port_name"), state[:7])
@@ -271,9 +286,14 @@ class SmolVLAServer:
              else self.rl.act(o, deterministic=bool(msg.get("deterministic"))))
         self._pending = (o, priv, a)
         self._rl_steps += 1
-        residual = a * self.rl.scale
-        chunk = chunk.copy()
-        chunk[:, :3] += residual
+        if noise_mode:  # zero_residual -> zero action -> zero noise would be degenerate; use ordinary sampling
+            noise = None if msg.get("zero_residual") else a * self.rl.scale
+            chunk = self.act(msg["obs"], prompt, noise, fields)
+            residual = np.zeros(3, np.float32)
+        else:
+            residual = a * self.rl.scale
+            chunk = chunk.copy()
+            chunk[:, :3] += residual
         return {"actions": chunk.astype(np.float32), "residual": residual.astype(np.float32),
                 "latency_s": time.perf_counter() - t0}
 
@@ -325,10 +345,13 @@ def main():
     ap.add_argument("--rl-dir", help="enable residual RL (rl_act/rl_end); agent and buffer live here")
     ap.add_argument("--rl-scale", type=float, default=0.02, help="max residual linear speed, m/s")
     ap.add_argument("--rl-port-detector", help="give the RL actor the camera port estimate (detector dir)")
+    ap.add_argument("--rl-mode", choices=["residual", "noise"], default="residual",
+                    help="residual twist on the base chunk, or DSRL: choose the base policy's start noise")
+    ap.add_argument("--rl-noise-bound", type=float, default=1.5, help="DSRL noise bound (standard deviations)")
     args = ap.parse_args()
     server = SmolVLAServer(args.checkpoint, args.device, args.num_steps, args.prompt_style, args.target_refs)
     if args.rl_dir:
-        server.enable_rl(args.rl_dir, args.rl_scale, args.rl_port_detector)
+        server.enable_rl(args.rl_dir, args.rl_scale, args.rl_port_detector, args.rl_mode, args.rl_noise_bound)
     serve(server, (transport.DEFAULT_ADDRESS[0], args.port))
 
 

@@ -1,4 +1,5 @@
-"""Residual soft actor-critic with an asymmetric (privileged) critic, for RL on top of a frozen base policy.
+"""Soft actor-critic with an asymmetric (privileged) critic, for RL on top of a frozen base policy: either a
+residual on its actions, or (DSRL) choosing its flow-matching start noise.
 
 Runs inside the inference server (LeRobot venv, GPU). One RL step is one action chunk: the base policy
 (SmolVLA or ACT) proposes the chunk, the actor adds a bounded linear-velocity correction to every action
@@ -38,9 +39,9 @@ def mlp(i, o, h=256):
 
 
 class Actor(nn.Module):
-    def __init__(self, obs_dim, act_dim):
+    def __init__(self, obs_dim, act_dim, hidden=256):
         super().__init__()
-        self.net = mlp(obs_dim, 2 * act_dim)
+        self.net = mlp(obs_dim, 2 * act_dim, hidden)
 
     def forward(self, o, deterministic=False):
         mu, log_std = self.net(o).chunk(2, -1)
@@ -57,16 +58,17 @@ class Actor(nn.Module):
 
 class ResidualSAC:
     def __init__(self, rl_dir, obs_dim, act_dim=3, scale=0.02, device="cuda", gamma=0.97, lr=3e-4,
-                 batch=256, capacity=200_000, utd=2, warmup=500):
+                 batch=256, capacity=200_000, utd=2, warmup=500, hidden=256, gaussian_warmup=False):
         self.dir = Path(rl_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.obs_dim, self.act_dim, self.scale = obs_dim, act_dim, scale
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.gamma, self.batch, self.utd, self.warmup = gamma, batch, utd, warmup
         cdim = obs_dim + PRIV_DIM + act_dim
-        self.actor = Actor(obs_dim, act_dim).to(self.device)
-        self.q1, self.q2 = mlp(cdim, 1).to(self.device), mlp(cdim, 1).to(self.device)
-        self.q1_t, self.q2_t = mlp(cdim, 1).to(self.device), mlp(cdim, 1).to(self.device)
+        self.gaussian_warmup = gaussian_warmup
+        self.actor = Actor(obs_dim, act_dim, hidden).to(self.device)
+        self.q1, self.q2 = mlp(cdim, 1, hidden).to(self.device), mlp(cdim, 1, hidden).to(self.device)
+        self.q1_t, self.q2_t = mlp(cdim, 1, hidden).to(self.device), mlp(cdim, 1, hidden).to(self.device)
         self.q1_t.load_state_dict(self.q1.state_dict())
         self.q2_t.load_state_dict(self.q2.state_dict())
         self.log_alpha = torch.zeros(1, device=self.device, requires_grad=True)
@@ -85,8 +87,11 @@ class ResidualSAC:
     # -- acting -----------------------------------------------------------------------------------
     @torch.no_grad()
     def act(self, obs, deterministic=False):
-        """Residual in [-1, 1]^act_dim; multiply by `scale` for m/s. Uniform random during warm-up."""
+        """Action in [-1, 1]^act_dim, times `scale` for physical units. During warm-up: uniform, or for DSRL
+        (gaussian_warmup) standard-normal noise / scale, so the base policy behaves as it normally does."""
         if not deterministic and self.size < self.warmup:
+            if self.gaussian_warmup:
+                return np.clip(np.random.randn(self.act_dim) / self.scale, -1, 1).astype(np.float32)
             return np.random.uniform(-1, 1, self.act_dim).astype(np.float32)
         o = torch.as_tensor(obs, device=self.device).unsqueeze(0)
         a, _ = self.actor(o, deterministic)
