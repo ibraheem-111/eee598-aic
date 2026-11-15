@@ -125,6 +125,7 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [smolvla-aic-v3](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v3) | v3 | 40k | 272 | 1 partial |
 | [act-aic-v3](https://huggingface.co/muhammad-ibraheem/act-aic-v3) | v3 | 50k | 268 | 0 |
 | [xvla-aic-v4](https://huggingface.co/muhammad-ibraheem/xvla-aic-v4) | v4 (19-dim state) | 60k | 327 | 1 partial (2 full on other sets) |
+| [xvla-recap-v1](https://huggingface.co/muhammad-ibraheem/xvla-recap-v1) | v4 demos + 100 X-VLA rollouts (advantage-tagged) | 20k (from xvla-aic-v4) | 368 | 1 full (2 full over 36 trials) |
 | [aic-port-detector](https://huggingface.co/muhammad-ibraheem/aic-port-detector) | port labels from v4 demos | 6 epochs | 1.1 mm median 3D error | (perception only) |
 
 ## Progress log
