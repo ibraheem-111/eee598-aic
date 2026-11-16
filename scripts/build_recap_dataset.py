@@ -3,7 +3,7 @@
 tagged with whether its action had positive advantage.
 
     external/lerobot/.venv/bin/python scripts/build_recap_dataset.py \
-        --rollouts outputs/rl/recap_rollouts/episodes --out data/demos/lerobot/aic_recap_v1
+        --rollouts outputs/rl/recap_rollouts/episodes [more dirs ...] --out data/demos/lerobot/aic_recap_v1
 
 Rollouts are recorded by RunResidualRL (AIC_RECORD_DIR + AIC_RL_ZERO_RESIDUAL=1): frames, the twist sent at every
 command (rl_commands.npz), and per 1 s chunk the reward and privileged state (rl_steps.json). Per chunk, the
@@ -36,11 +36,10 @@ from convert_demos import commanded_poses, latest_wrench, rest_frame, twist_acti
 POS, NEG = " Advantage: positive", " Advantage: negative"
 
 
-def load_rollouts(root):
+def load_rollouts(roots):
+    """Recorded rollout episodes under one or more folders (searched recursively, e.g. per-environment subfolders)."""
     eps = []
-    for d in sorted(Path(root).glob("*/")):
-        if not (d / "rl_steps.json").exists():
-            continue
+    for d in sorted({f.parent for root in roots for f in Path(root).rglob("rl_steps.json")}):
         z = np.load(d / "data.npz")
         steps = json.loads((d / "rl_steps.json").read_text())
         if not steps["steps"]:
@@ -109,7 +108,7 @@ def frames_of(d, idx):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--rollouts", type=Path, default=ROOT / "outputs/rl/recap_rollouts/episodes")
+    ap.add_argument("--rollouts", type=Path, nargs="+", default=[ROOT / "outputs/rl/recap_rollouts/episodes"])
     ap.add_argument("--raw", type=Path, default=ROOT / "data/demos/raw")
     ap.add_argument("--out", type=Path, default=ROOT / "data/demos/lerobot/aic_recap_v1")
     ap.add_argument("--gamma", type=float, default=0.9)
@@ -134,7 +133,7 @@ def main():
         import shutil
 
         shutil.rmtree(args.out)
-    w, h = Image.open(next(args.rollouts.glob("*/left_camera/000000.jpg"))).size
+    w, h = Image.open(eps[0]["dir"] / "left_camera" / "000000.jpg").size
     ds = LeRobotDataset.create(repo_id=f"local/{args.out.name}", fps=10, features=features(h, w), root=args.out,
                                robot_type="aic_ur5e", use_videos=True, image_writer_threads=3)
     n_demo = n_roll = n_pos = 0

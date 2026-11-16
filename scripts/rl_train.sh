@@ -14,10 +14,13 @@
 # port estimate (aic_smolvla.port_estimator). RL_MODE=noise runs DSRL (the actor picks the base policy's
 # flow-matching start noise) instead of a residual. Hold the GPU lock:
 #   flock /tmp/claude-1000/gpu.lock scripts/rl_train.sh ...
+# Parallel environments: scripts/rl_parallel.sh starts one rl_train.sh per AIC_ENV.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="${1:?run name}"; CKPT="${2:?checkpoint}"; ROUNDS="${3:-10}"; N="${4:-20}"; SEED0="${5:-300}"
 RUN="$ROOT/outputs/rl/$NAME"; mkdir -p "$RUN/agent"
+# AIC_ENV=i: run in parallel environment i (own ports, ROS domain, Gazebo partition; scripts/aic_env.sh)
+source "$ROOT/scripts/aic_env.sh"
 export AIC_SMOLVLA_MAX_LIN="${AIC_SMOLVLA_MAX_LIN:-0.06}" AIC_SMOLVLA_MAX_ANG="${AIC_SMOLVLA_MAX_ANG:-0.4}"
 export AIC_SMOLVLA_MAX_DRIFT="${AIC_SMOLVLA_MAX_DRIFT:-0.4}" AIC_SMOLVLA_MAX_FORCE="${AIC_SMOLVLA_MAX_FORCE:-30}"
 export AIC_SMOLVLA_MAX_SECONDS="${AIC_SMOLVLA_MAX_SECONDS:-60}"
@@ -35,7 +38,7 @@ for ((k = 0; k < ROUNDS; k++)); do
   cleanup() {
     for p in "${pids[@]}"; do kill -INT -- "-$p" 2>/dev/null; done; sleep 5
     for p in "${pids[@]}"; do kill -9 -- "-$p" 2>/dev/null; done
-    docker stop -t 10 aic_eval >/dev/null 2>&1
+    if [ -n "${AIC_ENV:-}" ]; then "$ROOT/scripts/aic_env_stop.sh" "$AIC_ENV"; else docker stop -t 10 aic_eval >/dev/null 2>&1; fi
   }
   trap cleanup EXIT
   setsid "$ROOT/scripts/run_smolvla_server.sh" "$CKPT" --rl-dir "$RUN/agent" ${RL_PORT_DETECTOR:+--rl-port-detector "$RL_PORT_DETECTOR"} ${RL_MODE:+--rl-mode "$RL_MODE"} >"$OUT/server.log" 2>&1 & pids+=($!)
