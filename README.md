@@ -102,6 +102,9 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 
 ## Datasets and models (Hugging Face)
 
+**Best model: [`xvla-recap-v1`](https://huggingface.co/muhammad-ibraheem/xvla-recap-v1)** (X-VLA + Recap round 1):
+1163 / 3600 over the 36 test trials, 2 full insertions. Use it unless you are reproducing a specific experiment.
+
 Public under `muhammad-ibraheem`, grouped in the collection
 [EEE 598 AIC cable insertion](https://huggingface.co/collections/muhammad-ibraheem/eee-598-aic-cable-insertion).
 Datasets are LeRobot v3.0 (load with `LeRobotDataset("muhammad-ibraheem/<name>")`); models are the final
@@ -116,6 +119,11 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [aic-cheatcode-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v2) | 256 demos, 41k frames: frozen tail trimmed, commanded actions (+ `action.pose`), force/torque (32-dim state) |
 | [aic-cheatcode-v3](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v3) | v2 fixes on 427 demos, 69k frames |
 | [aic-cheatcode-v4](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4) | v2 fixes on 585 demos, 95k frames |
+| [aic-cheatcode-v4-xvla](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4-xvla) | v4 with X-VLA's 19-dim state (pose, velocities, force/torque) |
+| [aic-cheatcode-v4-xvla-port](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4-xvla-port) | v4 X-VLA state with the camera port estimate (20-dim) |
+| [aic-recap-v1](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v1) | Recap round 1: 585 demos + 100 X-VLA rollouts, task text tagged `Advantage: positive/negative` |
+| [aic-recap-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v2) | Recap round 2: 585 demos + 360 rollouts |
+| [aic-recap-rollouts](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-rollouts) | 380 raw recorded rollouts (frames, commands sent, per-second true distance and reward), tar files of 20 |
 
 | Model | Trained on | Steps | Score | Inserted |
 |---|---|---|---|---|
@@ -125,7 +133,10 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [smolvla-aic-v3](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v3) | v3 | 40k | 272 | 1 partial |
 | [act-aic-v3](https://huggingface.co/muhammad-ibraheem/act-aic-v3) | v3 | 50k | 268 | 0 |
 | [xvla-aic-v4](https://huggingface.co/muhammad-ibraheem/xvla-aic-v4) | v4 (19-dim state) | 60k | 327 | 1 partial (2 full on other sets) |
-| [xvla-recap-v1](https://huggingface.co/muhammad-ibraheem/xvla-recap-v1) | v4 demos + 100 X-VLA rollouts (advantage-tagged) | 20k (from xvla-aic-v4) | 368 | 1 full (2 full over 36 trials) |
+| **[xvla-recap-v1](https://huggingface.co/muhammad-ibraheem/xvla-recap-v1) (best)** | v4 demos + 100 X-VLA rollouts (advantage-tagged) | 20k (from xvla-aic-v4) | 368 | 1 full (**1163** and 2 full over 36 trials) |
+| [xvla-recap-v2](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2) | v4 demos + 360 rollouts | 40k (from xvla-recap-v1) | 291 | 0 (949 over 36 trials; worse than v1) |
+| [xvla-port-v4](https://huggingface.co/muhammad-ibraheem/xvla-port-v4) | v4 with camera port estimate | 30k (from xvla-aic-v4) | 241 | 0 (896 over 36 trials) |
+| [aic-rl-agents](https://huggingface.co/muhammad-ibraheem/aic-rl-agents) | residual SAC (SmolVLA v3, X-VLA) and DSRL agents + training logs | 280-300 episodes each | | |
 | [aic-port-detector](https://huggingface.co/muhammad-ibraheem/aic-port-detector) | port labels from v4 demos | 6 epochs | 1.1 mm median 3D error | (perception only) |
 
 ## Progress log
