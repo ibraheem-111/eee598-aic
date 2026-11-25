@@ -102,9 +102,11 @@ python aic/aic_utils/aic_isaac/aic_isaaclab/scripts/teleop.py \
 
 ## Datasets and models (Hugging Face)
 
-**Best model: [`xvla-recap-v2-20k`](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2-20k)** (X-VLA + Recap round 2,
+**Best model: [`xvla-recap-v2-20k`](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2-20k)** (X-VLA + RECAP round 2,
 20k steps): 1229 / 3600 over the 36 test trials, 2 full insertions, 2 failed trials. Use it unless you are reproducing a
 specific experiment.
+
+Reinforcement-learning methods used: RECAP (RL with Experience and Corrections via Advantage-conditioned Policies; Physical Intelligence et al., "π*0.6: a VLA That Learns From Experience", [arXiv:2511.14759](https://arxiv.org/abs/2511.14759), 2025), and DSRL (Wagenmaker et al., "Steering Your Diffusion Policy with Latent Space Reinforcement Learning", CoRL 2025).
 
 Public under `muhammad-ibraheem`, grouped in the collection
 [EEE 598 AIC cable insertion](https://huggingface.co/collections/muhammad-ibraheem/eee-598-aic-cable-insertion).
@@ -122,8 +124,8 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [aic-cheatcode-v4](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4) | v2 fixes on 585 demos, 95k frames |
 | [aic-cheatcode-v4-xvla](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4-xvla) | v4 with X-VLA's 19-dim state (pose, velocities, force/torque) |
 | [aic-cheatcode-v4-xvla-port](https://huggingface.co/datasets/muhammad-ibraheem/aic-cheatcode-v4-xvla-port) | v4 X-VLA state with the camera port estimate (20-dim) |
-| [aic-recap-v1](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v1) | Recap round 1: 585 demos + 100 X-VLA rollouts, task text tagged `Advantage: positive/negative` |
-| [aic-recap-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v2) | Recap round 2: 585 demos + 360 rollouts |
+| [aic-recap-v1](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v1) | RECAP round 1: 585 demos + 100 X-VLA rollouts, task text tagged `Advantage: positive/negative` |
+| [aic-recap-v2](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-v2) | RECAP round 2: 585 demos + 360 rollouts |
 | [aic-recap-rollouts](https://huggingface.co/datasets/muhammad-ibraheem/aic-recap-rollouts) | 380 raw recorded rollouts (frames, commands sent, per-second true distance and reward), tar files of 20 |
 
 | Model | Trained on | Steps | Score | Inserted |
@@ -134,7 +136,7 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | [smolvla-aic-v3](https://huggingface.co/muhammad-ibraheem/smolvla-aic-v3) | v3 | 40k | 272 | 1 partial |
 | [act-aic-v3](https://huggingface.co/muhammad-ibraheem/act-aic-v3) | v3 | 50k | 268 | 0 |
 | [xvla-aic-v4](https://huggingface.co/muhammad-ibraheem/xvla-aic-v4) | v4 (19-dim state) | 60k | 327 | 1 partial (2 full on other sets) |
-| **[xvla-recap-v2-20k](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2-20k) (best)** | v4 demos + 360 rollouts (2 Recap rounds) | 20k (from xvla-recap-v1) | 393 | 1 full (**1229** and 2 full over 36 trials) |
+| **[xvla-recap-v2-20k](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2-20k) (best)** | v4 demos + 360 rollouts (2 RECAP rounds) | 20k (from xvla-recap-v1) | 393 | 1 full (**1229** and 2 full over 36 trials) |
 | [xvla-recap-v1](https://huggingface.co/muhammad-ibraheem/xvla-recap-v1) (previous best) | v4 demos + 100 X-VLA rollouts (advantage-tagged) | 20k (from xvla-aic-v4) | 368 | 1 full (**1163** and 2 full over 36 trials) |
 | [xvla-recap-v2](https://huggingface.co/muhammad-ibraheem/xvla-recap-v2) | v4 demos + 360 rollouts | 40k (from xvla-recap-v1) | 291 | 0 (949 over 36 trials; overtrained, see the 20k checkpoint) |
 | [xvla-port-v4](https://huggingface.co/muhammad-ibraheem/xvla-port-v4) | v4 with camera port estimate | 30k (from xvla-aic-v4) | 241 | 0 (896 over 36 trials) |
@@ -176,8 +178,8 @@ checkpoint of each run (download with `hf download muhammad-ibraheem/<name> --lo
 | 2026-11-12 | Residual asymmetric SAC on X-VLA, camera port estimate in the actor input, 280 episodes (seeds 400-414): deterministic 340 / 326 / 345 = 1011 vs 1052, 1 full insertion (94 pts, best single trial) vs 2 full + 1 partial. Ends closer more often, no better at the final insertion. Startup race fixed (policy node now starts before the simulator) |
 | 2026-11-14 | X-VLA coverage test (12 boards x 8 runs): best-of-8 within 1 cm on 2/12 boards (one insertion), within 2 cm on 4/12; spread best vs typical 1.4 cm (SmolVLA 0.5 cm). Noise input for X-VLA added to the server |
 | 2026-11-15 | DSRL on X-VLA (`--rl-mode noise`: SAC picks the 30x20 start noise, +-1.5 sd, camera port estimate in the actor), 300 episodes (seeds 500-514): flat training curve; deterministic 382 / 281 / 414 = 1077 vs 1052 for X-VLA, 1 full + 2 partial insertions vs 2 full + 1 partial. Within noise |
-| 2026-11-15 | Recap-style advantage-conditioned fine-tuning (Physical Intelligence, pi*0.6; `scripts/build_recap_dataset.py`): 120 recorded X-VLA rollouts with true rewards, cross-fitted privileged value function (corr 0.20 with returns), top 30% chunks + insertions tagged "Advantage: positive", plus 585 demos; X-VLA fine-tuned 20k steps, asks for "positive" at test time. **368 / 348 / 447 = 1163** vs X-VLA 1052 (DSRL 1077, residual 1011); 2 full insertions (`docs/media/recap_full_insertion_*.mp4`), fewer failed trials |
+| 2026-11-15 | RECAP (RL with Experience and Corrections via Advantage-conditioned Policies; Physical Intelligence et al., "π*0.6: a VLA That Learns From Experience", [arXiv:2511.14759](https://arxiv.org/abs/2511.14759), 2025): advantage-conditioned fine-tuning; `scripts/build_recap_dataset.py`): 120 recorded X-VLA rollouts with true rewards, cross-fitted privileged value function (corr 0.20 with returns), top 30% chunks + insertions tagged "Advantage: positive", plus 585 demos; X-VLA fine-tuned 20k steps, asks for "positive" at test time. **368 / 348 / 447 = 1163** vs X-VLA 1052 (DSRL 1077, residual 1011); 2 full insertions (`docs/media/recap_full_insertion_*.mp4`), fewer failed trials |
 | 2026-11-15 | Parallel simulator environments (`scripts/sim_entrypoint.sh`, `scripts/rl_parallel.sh`): several Gazebo instances in one container, isolated by Zenoh port, ROS domain and Gazebo partition; 2 environments collect ~2x faster. `scripts/remote_collect.sh` + `docs/REMOTE_COLLECTION.md` for collecting on a teammate's GPU |
-| 2026-11-16 | Recap round 2: 260 more rollouts from the round-1 model (2 environments), 380 rollouts total (15 insertion chunks, value corr 0.55), 40k steps from round 1: **949** (291 / 321 / 337), 0 insertions, worse than round 1 (1163). Likely the rollout-heavy mix (rollouts ~2:1 over demos, "positive" = top 30% of mediocre behaviour) and/or overtraining. Round 1 remains the best model |
-| 2026-11-22 | Recap round 2 at 20k steps: **1229** (393 / 409 / 427), 2 full insertions, only 2 trials under 15 points; the 40k checkpoint (949) was overtrained. New best model, `xvla-recap-v2-20k` |
-| next | Recap round 3 with checkpoint selection (evaluate every 10k), demos as the majority; larger evaluation and success rates by port type (SFP ~3%, SC ~0%) |
+| 2026-11-16 | RECAP round 2: 260 more rollouts from the round-1 model (2 environments), 380 rollouts total (15 insertion chunks, value corr 0.55), 40k steps from round 1: **949** (291 / 321 / 337), 0 insertions, worse than round 1 (1163). Likely the rollout-heavy mix (rollouts ~2:1 over demos, "positive" = top 30% of mediocre behaviour) and/or overtraining. Round 1 remains the best model |
+| 2026-11-22 | RECAP round 2 at 20k steps: **1229** (393 / 409 / 427), 2 full insertions, only 2 trials under 15 points; the 40k checkpoint (949) was overtrained. New best model, `xvla-recap-v2-20k` |
+| next | RECAP round 3 with checkpoint selection (evaluate every 10k), demos as the majority; larger evaluation and success rates by port type (SFP ~3%, SC ~0%) |

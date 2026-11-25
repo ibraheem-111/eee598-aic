@@ -1,10 +1,10 @@
-# Collecting Recap rollouts on a second machine
+# Collecting RECAP rollouts on a second machine
 
-Recap ([README](../README.md), progress log 2026-11-15) improves X-VLA from its own attempts: every rollout
+RECAP ([README](../README.md), progress log 2026-11-15) improves X-VLA from its own attempts: every rollout
 recorded with true rewards is labelled with an advantage and goes into the next fine-tune. Collection is
 embarrassingly parallel, so a second GPU doubles or triples the data per night. `scripts/remote_collect.sh` sets
 up a machine, runs as many simulator environments as its GPU and CPU allow, and uploads the rollouts to a
-Hugging Face dataset; the main machine downloads them and adds them to the next Recap round.
+Hugging Face dataset; the main machine downloads them and adds them to the next RECAP round.
 
 ## What it does
 
